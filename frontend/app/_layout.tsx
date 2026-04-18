@@ -14,7 +14,7 @@ const RootLayout = () => {
           screenOptions={{
             headerShown: false,
             ...(Platform.OS === "android" && {
-              contentStyle: { backgroundColor: "#0F0E1A" },
+              contentStyle: { backgroundColor: "#04141E" },
               animation: "none",
               presentation: "transparentModal",
             }),
@@ -24,7 +24,7 @@ const RootLayout = () => {
           <Stack.Screen name="(auth)" />
           <Stack.Screen name="(tabs)" />
         </Stack>
-        <StatusBar backgroundColor="#161622" style="light" />
+        <StatusBar backgroundColor="#04141E" style="light" />
       </AuthProvider>
     </AppThemeProvider>
   );

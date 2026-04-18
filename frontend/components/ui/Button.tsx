@@ -1,5 +1,6 @@
 import React from 'react';
 import { Pressable, PressableProps, Text, ViewStyle } from 'react-native';
+import { useAppTheme } from '@/contexts/ThemeContext';
 
 export type ButtonProps = PressableProps & {
   title: string;
@@ -16,12 +17,12 @@ export const Button: React.FC<ButtonProps> = ({
   disabled,
   ...pressableProps
 }) => {
-  const backgroundColor =
-    variant === 'solid'
-      ? '#dc2626'
-      : 'transparent';
+  const { colors } = useAppTheme();
+  const primary = colors.primary as string;
+  const onPrimary = colors.onPrimary as string;
 
-  const textColor = variant === 'solid' ? '#ffffff' : '#dc2626';
+  const backgroundColor = variant === 'solid' ? primary : 'transparent';
+  const textColor = variant === 'solid' ? onPrimary : primary;
 
   const buttonStyle: ViewStyle = {
     paddingVertical: 16,
@@ -30,7 +31,7 @@ export const Button: React.FC<ButtonProps> = ({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: variant === 'outline' ? 1 : 0,
-    borderColor: variant === 'outline' ? '#dc2626' : 'transparent',
+    borderColor: variant === 'outline' ? primary : 'transparent',
     backgroundColor: backgroundColor,
     minHeight: 56,
     opacity: disabled ? 0.5 : 1,

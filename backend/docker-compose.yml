@@ -1,0 +1,29 @@
+services:
+  backend:
+    build: .
+    image: reelize-backend:latest
+    container_name: reelize-backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./tmp:/app/tmp
+      - hf-cache:/cache/huggingface
+      - torch-cache:/cache/torch
+      - whisper-cache:/cache/whisper
+      - demucs-cache:/root/.cache/demucs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  hf-cache:
+  torch-cache:
+  whisper-cache:
+  demucs-cache:

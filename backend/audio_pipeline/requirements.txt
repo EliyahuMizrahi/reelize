@@ -1,0 +1,12 @@
+openai-whisper
+pyannote.audio>=4.0.1
+demucs
+shazamio
+thefuzz
+librosa
+soundfile
+scipy
+scikit-learn
+numpy
+torch
+yt-dlp

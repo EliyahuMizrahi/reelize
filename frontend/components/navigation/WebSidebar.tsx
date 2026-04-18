@@ -119,7 +119,7 @@ export const WebSidebar: React.FC<WebSidebarProps> = ({ onNewVideo }) => {
                 borderWidth: 1,
                 borderStyle: "dashed",
                 borderColor: colors.mutedText as string,
-                backgroundColor: colors.border as string,
+                backgroundColor: colors.elevated as string,
                 justifyContent: "center",
                 alignItems: "center",
               }}
@@ -195,7 +195,7 @@ export const WebSidebar: React.FC<WebSidebarProps> = ({ onNewVideo }) => {
                   alignItems: "center",
                 }}
               >
-                <FontAwesome5 name="plus" size={18} color="#FFFFFF" />
+                <FontAwesome5 name="plus" size={18} color={colors.onPrimary as string} />
               </View>
               <Animated.View
                 style={[
@@ -206,7 +206,7 @@ export const WebSidebar: React.FC<WebSidebarProps> = ({ onNewVideo }) => {
                 <Text
                   numberOfLines={1}
                   style={{
-                    color: "#FFFFFF",
+                    color: colors.onPrimary as string,
                     fontSize: 15,
                     fontWeight: "600",
                     paddingRight: 16,
@@ -226,7 +226,7 @@ export const WebSidebar: React.FC<WebSidebarProps> = ({ onNewVideo }) => {
               ? (colors.primary as string)
               : (colors.mutedText as string);
             const bgColor = active
-              ? (colors.primary as string) + "22"
+              ? (colors.primary as string) + "2A"
               : "transparent";
 
             return (
@@ -244,8 +244,22 @@ export const WebSidebar: React.FC<WebSidebarProps> = ({ onNewVideo }) => {
                       height: 38,
                       opacity: pressed ? 0.7 : 1,
                       overflow: "hidden",
+                      position: "relative",
                     })}
                   >
+                    {active && (
+                      <View
+                        style={{
+                          position: "absolute",
+                          left: 0,
+                          top: 8,
+                          bottom: 8,
+                          width: 3,
+                          borderRadius: 2,
+                          backgroundColor: colors.primary as string,
+                        }}
+                      />
+                    )}
                     <View
                       style={{
                         width: 38,

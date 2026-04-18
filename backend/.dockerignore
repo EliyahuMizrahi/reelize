@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+.git/
+.gitignore
+tmp/
+ffmpeg_shared/
+ffmpeg_shared.zip
+clips/
+*.mp4
+*.wav
+.vscode/
+.idea/
+.pytest_cache/
+.mypy_cache/
