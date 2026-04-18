@@ -28,6 +28,11 @@ def _update_job(job_id: str, **fields) -> None:
     get_supabase().table("jobs").update(fields).eq("id", job_id).execute()
 
 
+def _update_clip(clip_id: str, **fields) -> None:
+    fields["updated_at"] = datetime.now(timezone.utc).isoformat()
+    get_supabase().table("clips").update(fields).eq("id", clip_id).execute()
+
+
 def _ytdlp_video(url: str, out_path: Path) -> None:
     """Download the video itself (not audio-only) to a local MP4."""
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -111,6 +116,7 @@ async def process_job(
     upload_path: Optional[str],
     clip_context: str,
     game_hint: Optional[str],
+    clip_id: Optional[str] = None,
 ) -> None:
     """Entry point scheduled by the /analyze endpoint."""
     scratch = JOBS_ROOT / job_id
@@ -119,6 +125,8 @@ async def process_job(
 
     try:
         _update_job(job_id, status="running")
+        if clip_id:
+            _update_clip(clip_id, status="generating")
 
         # 1. Materialize input as local MP4
         video_path = scratch / "video.mp4"
@@ -163,8 +171,35 @@ async def process_job(
             audio_manifest=audio_manifest,
             artifact_prefix=prefix,
         )
+        if clip_id:
+            _update_clip(
+                clip_id,
+                status="ready",
+                artifact_prefix=prefix,
+                style_dna=_style_dna_from_analysis(video_analysis, audio_manifest),
+            )
         log.info("Job %s done", job_id)
 
     except Exception as e:
         log.error("Job %s failed: %s\n%s", job_id, e, traceback.format_exc())
         _update_job(job_id, status="failed", error=f"{type(e).__name__}: {e}")
+        if clip_id:
+            _update_clip(clip_id, status="failed")
+
+
+def _style_dna_from_analysis(video_analysis: dict, audio_manifest: dict) -> dict:
+    """Best-effort distillation of the analyzer output into the 6-token Style DNA
+    the frontend renders. Safe against missing keys — every field is optional."""
+    va = video_analysis or {}
+    am = audio_manifest or {}
+    cuts = va.get("cuts") or va.get("scene_cuts") or []
+    duration = va.get("duration_s") or am.get("duration_s") or 0
+    cuts_per_sec = (len(cuts) / duration) if duration else None
+    return {
+        "pacing": {"cuts_per_sec": cuts_per_sec, "cut_count": len(cuts)},
+        "hook": va.get("hook") or {},
+        "captions": va.get("captions") or {},
+        "voice": am.get("diarization") or am.get("voice") or {},
+        "music": am.get("music") or {},
+        "visual": va.get("palette") or va.get("visual") or {},
+    }

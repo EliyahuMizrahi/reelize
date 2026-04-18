@@ -1,132 +1,133 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, {
+  createContext,
+  ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import { useRouter } from 'expo-router';
-import React, { createContext, ReactNode, useContext, useEffect, useState } from 'react';
-import { AuthResponse, login, signUp } from '../services/api';
+import type { Session, User } from '@supabase/supabase-js';
 
-interface User {
-  id: string;
-  username: string;
-}
+import { supabase } from '@/lib/supabase';
+import type { Row } from '@/types/supabase';
+
+type Profile = Row<'profiles'>;
 
 interface AuthContextType {
+  session: Session | null;
   user: User | null;
-  accessToken: string | null;
-  refreshToken: string | null;
+  profile: Profile | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  signUp: (username: string, password: string) => Promise<void>;
-  login: (username: string, password: string) => Promise<void>;
+
+  signUp: (email: string, password: string, username?: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
-  updateUser: (updates: Partial<User>) => void;
+  refreshProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-interface AuthProviderProps {
-  children: ReactNode;
+async function loadProfile(userId: string): Promise<Profile | null> {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', userId)
+    .maybeSingle();
+  if (error) {
+    // eslint-disable-next-line no-console
+    console.warn('[auth] loadProfile error', error.message);
+    return null;
+  }
+  return data;
 }
 
-export function AuthProvider({ children }: AuthProviderProps) {
+export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
-  const [user, setUser] = useState<User | null>(null);
-  const [accessToken, setAccessToken] = useState<string | null>(null);
-  const [refreshToken, setRefreshToken] = useState<string | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const isAuthenticated = !!user && !!accessToken;
-
-  useEffect(() => {
-    loadStoredTokens();
+  const hydrateProfile = useCallback(async (s: Session | null) => {
+    if (!s?.user?.id) {
+      setProfile(null);
+      return;
+    }
+    const p = await loadProfile(s.user.id);
+    setProfile(p);
   }, []);
 
-  const loadStoredTokens = async () => {
-    try {
-      const storedAccessToken = await AsyncStorage.getItem('accessToken');
-      const storedRefreshToken = await AsyncStorage.getItem('refreshToken');
-      const storedUser = await AsyncStorage.getItem('user');
+  useEffect(() => {
+    let cancelled = false;
 
-      if (storedAccessToken && storedRefreshToken && storedUser) {
-        setAccessToken(storedAccessToken);
-        setRefreshToken(storedRefreshToken);
-        setUser(JSON.parse(storedUser));
-      }
-    } catch (error) {
-      console.error('Error loading stored tokens:', error);
-    } finally {
+    supabase.auth.getSession().then(async ({ data }) => {
+      if (cancelled) return;
+      setSession(data.session);
+      await hydrateProfile(data.session);
       setIsLoading(false);
-    }
-  };
+    });
 
-  const storeTokens = async (authResponse: AuthResponse) => {
-    await AsyncStorage.setItem('accessToken', authResponse.data.AccessToken);
-    await AsyncStorage.setItem('refreshToken', authResponse.data.RefreshToken);
+    const { data: sub } = supabase.auth.onAuthStateChange(async (_event, s) => {
+      setSession(s);
+      await hydrateProfile(s);
+    });
 
-    const tokenPayload = JSON.parse(atob(authResponse.data.AccessToken.split('.')[1]));
-    const userData: User = {
-      id: tokenPayload.id,
-      username: tokenPayload.username,
+    return () => {
+      cancelled = true;
+      sub.subscription.unsubscribe();
     };
+  }, [hydrateProfile]);
 
-    await AsyncStorage.setItem('user', JSON.stringify(userData));
-
-    setAccessToken(authResponse.data.AccessToken);
-    setRefreshToken(authResponse.data.RefreshToken);
-    setUser(userData);
-  };
-
-  const clearTokens = async () => {
-    await AsyncStorage.multiRemove(['accessToken', 'refreshToken', 'user']);
-    setAccessToken(null);
-    setRefreshToken(null);
-    setUser(null);
-  };
-
-  const handleSignUp = async (username: string, password: string) => {
-    const response = await signUp({ username, password });
-    await storeTokens(response);
-  };
-
-  const handleLogin = async (username: string, password: string) => {
-    const response = await login({ username, password });
-    await storeTokens(response);
-  };
-
-  const handleLogout = async () => {
-    await clearTokens();
-    router.replace('/(auth)/sign-in' as any);
-  };
-
-  const updateUser = async (updates: Partial<User>) => {
-    if (user) {
-      const updated = { ...user, ...updates };
-      setUser(updated);
-      await AsyncStorage.setItem('user', JSON.stringify(updated));
-    }
-  };
-
-  const value: AuthContextType = {
-    user,
-    accessToken,
-    refreshToken,
-    isLoading,
-    isAuthenticated,
-    signUp: handleSignUp,
-    login: handleLogin,
-    logout: handleLogout,
-    updateUser,
-  };
-
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
+  const signUp = useCallback(
+    async (email: string, password: string, username?: string) => {
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: username ? { username, display_name: username } : undefined,
+        },
+      });
+      if (error) throw error;
+    },
+    [],
   );
+
+  const login = useCallback(async (email: string, password: string) => {
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+  }, []);
+
+  const logout = useCallback(async () => {
+    await supabase.auth.signOut();
+    router.replace('/(auth)/sign-in' as any);
+  }, [router]);
+
+  const refreshProfile = useCallback(async () => {
+    await hydrateProfile(session);
+  }, [session, hydrateProfile]);
+
+  const value = useMemo<AuthContextType>(
+    () => ({
+      session,
+      user: session?.user ?? null,
+      profile,
+      isLoading,
+      isAuthenticated: !!session,
+      signUp,
+      login,
+      logout,
+      refreshProfile,
+    }),
+    [session, profile, isLoading, signUp, login, logout, refreshProfile],
+  );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth must be used within an AuthProvider');
+  return ctx;
 }

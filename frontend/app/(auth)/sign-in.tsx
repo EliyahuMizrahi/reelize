@@ -1,180 +1,188 @@
+import React, { useState } from 'react';
+import { View, Platform, KeyboardAvoidingView, ScrollView, Pressable } from 'react-native';
+import Animated from 'react-native-reanimated';
+import { Link, useRouter } from 'expo-router';
+import * as Haptics from 'expo-haptics';
+
+import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
-import { Spacer } from '@/components/ui/Spacer';
 import { TextField } from '@/components/ui/TextField';
+import { Headline, Body, BodySm, Mono, Overline } from '@/components/ui/Text';
+import { Noctis } from '@/components/brand/Noctis';
+import { ENTER } from '@/components/ui/motion';
 import { useAppTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { Link, useRouter } from 'expo-router';
-import React, { useState } from 'react';
-import { Platform, Pressable, ScrollView, Text, View, Alert } from 'react-native';
+import { palette, spacing } from '@/constants/tokens';
 
 export default function SignInScreen() {
-  const { colors } = useAppTheme();
+  const { isDark } = useAppTheme();
   const { login } = useAuth();
   const router = useRouter();
   const isWeb = Platform.OS === 'web';
 
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [fieldFocus, setFieldFocus] = useState<'email' | 'password' | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  const canSubmit = email.trim().length > 0 && password.length > 0 && !isLoading;
+
   const handleSignIn = async () => {
-    if (!username.trim() || !password.trim()) {
-      if (isWeb) {
-        alert('Please fill in all fields');
-      } else {
-        Alert.alert('Error', 'Please fill in all fields');
-      }
+    setError(null);
+    if (!email.trim() || !password.trim()) {
+      setError('Enter your email and password.');
       return;
     }
-
+    if (!isWeb) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    }
     setIsLoading(true);
     try {
-      await login(username.trim(), password);
-      router.replace('/(tabs)/tab1' as any);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'An error occurred';
-      if (isWeb) {
-        alert(`Login Failed: ${errorMessage}`);
-      } else {
-        Alert.alert('Login Failed', errorMessage);
-      }
+      await login(email.trim().toLowerCase(), password);
+      router.replace('/(tabs)/feed');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Something went wrong.';
+      setError(msg);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleDevSkip = () => {
-    router.replace('/(tabs)/tab1' as any);
-  };
-
-  const LogoPlaceholder = () => (
-    <View
-      style={{
-        width: 48,
-        height: 48,
-        borderRadius: 12,
-        borderWidth: 1,
-        borderStyle: 'dashed',
-        borderColor: colors.mutedText as string,
-        backgroundColor: colors.border as string,
-        justifyContent: 'center',
-        alignItems: 'center',
-      }}
-    >
-      <Text style={{ color: colors.mutedText as string, fontSize: 8, fontWeight: '600' }}>
-        48×48
-      </Text>
-    </View>
-  );
+  const textColor = isDark ? palette.mist : palette.ink;
+  const subColor = isDark ? palette.fog : palette.teal;
 
   return (
-    <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center' }} style={{ backgroundColor: isWeb ? colors.card as string : colors.background as string }}>
+    <Screen background={isDark ? 'ink' : 'paper'} edges={['top', 'bottom']}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <Animated.View
+          entering={ENTER.fadeSlow(200)}
+          style={{
+            position: 'absolute',
+            top: spacing['4xl'],
+            right: spacing.xl,
+            zIndex: 2,
+          }}
+        >
+          <Noctis
+            variant="watching"
+            size={54}
+            color={textColor}
+            eyeColor={palette.sage}
+            animated
+          />
+        </Animated.View>
 
-      {isWeb && (
-        <View style={{ alignItems: 'center', marginBottom: 20 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <LogoPlaceholder />
-            <Text
+        <ScrollView
+          contentContainerStyle={{
+            flexGrow: 1,
+            paddingHorizontal: spacing['2xl'],
+            paddingTop: spacing['6xl'],
+            paddingBottom: spacing['3xl'],
+            justifyContent: 'space-between',
+          }}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={{ maxWidth: 480 }}>
+            <Animated.View entering={ENTER.fadeUp(100)}>
+              <Overline color={palette.sage}>Reelize · Sign in</Overline>
+            </Animated.View>
+
+            <Animated.View entering={ENTER.fadeUpSlow(240)} style={{ marginTop: spacing.lg }}>
+              <Headline color={textColor}>Welcome back.</Headline>
+            </Animated.View>
+
+            <Animated.View entering={ENTER.fadeUp(420)} style={{ marginTop: spacing.sm }}>
+              <Body color={subColor} italic family="serif">
+                Your private study shelf awaits.
+              </Body>
+            </Animated.View>
+
+            <Animated.View entering={ENTER.fadeUp(600)} style={{ marginTop: spacing['3xl'], gap: spacing.lg }}>
+              <TextField
+                label="Email"
+                placeholder="you@somewhere.com"
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete="email"
+                keyboardType="email-address"
+                value={email}
+                onChangeText={(t) => {
+                  setEmail(t);
+                  if (error) setError(null);
+                }}
+                onFocus={() => setFieldFocus('email')}
+                onBlur={() => setFieldFocus(null)}
+                variant="boxed"
+                error={error && fieldFocus !== 'password' ? error : null}
+                returnKeyType="next"
+              />
+              <TextField
+                label="Password"
+                placeholder="Your password"
+                secureTextEntry
+                autoComplete="current-password"
+                value={password}
+                onChangeText={(t) => {
+                  setPassword(t);
+                  if (error) setError(null);
+                }}
+                onFocus={() => setFieldFocus('password')}
+                onBlur={() => setFieldFocus(null)}
+                variant="boxed"
+                returnKeyType="go"
+                onSubmitEditing={handleSignIn}
+              />
+            </Animated.View>
+          </View>
+
+          <View style={{ marginTop: spacing['3xl'] }}>
+            <Animated.View entering={ENTER.fadeUp(760)}>
+              <Button
+                title={isLoading ? 'Signing in…' : 'Sign in'}
+                variant="primary"
+                size="lg"
+                fullWidth
+                disabled={!canSubmit}
+                onPress={handleSignIn}
+              />
+            </Animated.View>
+
+            <Animated.View
+              entering={ENTER.fadeUp(880)}
               style={{
-                marginLeft: 12,
-                color: colors.text as string,
-                fontSize: 28,
-                fontWeight: '800'
+                marginTop: spacing.xl,
+                flexDirection: 'row',
+                justifyContent: 'center',
+                alignItems: 'center',
+                gap: spacing.xs,
               }}
             >
-              App
-            </Text>
+              <BodySm color={subColor}>New here?</BodySm>
+              <Link href="/(auth)/sign-up" asChild>
+                <Pressable>
+                  <BodySm color={palette.sage} weight="semibold">
+                    Start your shelf →
+                  </BodySm>
+                </Pressable>
+              </Link>
+            </Animated.View>
+
+            <Animated.View
+              entering={ENTER.fade(1000)}
+              style={{ marginTop: spacing['2xl'], alignItems: 'center' }}
+            >
+              <Mono color={isDark ? palette.teal : palette.fog}>
+                no feed · no followers · just your shelf
+              </Mono>
+            </Animated.View>
           </View>
-        </View>
-      )}
-
-      <View style={{
-        width: '100%',
-        padding: 24,
-        ...(isWeb && {
-          maxWidth: 400,
-          alignSelf: 'center',
-          borderRadius: 12,
-          margin: 20,
-        })
-      }}>
-
-        {!isWeb && (
-          <View style={{ alignItems: 'center', marginBottom: 40 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <LogoPlaceholder />
-              <Text
-                style={{
-                  marginLeft: 12,
-                  color: colors.text as string,
-                  fontSize: 28,
-                  fontWeight: '800'
-                }}
-              >
-                App
-              </Text>
-            </View>
-          </View>
-        )}
-
-        <Text style={{ color: colors.text as string, fontWeight: '800', fontSize: 24, marginBottom: 20 }}>
-          Log in
-        </Text>
-
-        <TextField
-          label="Username"
-          placeholder="Enter your username"
-          autoCapitalize="none"
-          value={username}
-          onChangeText={setUsername}
-        />
-        <Spacer size={18} />
-        <TextField
-          label="Password"
-          placeholder="Enter your password"
-          secureTextEntry
-          value={password}
-          onChangeText={setPassword}
-        />
-        <Spacer size={16} />
-
-        <Button
-          title={isLoading ? "Signing In..." : "Sign In"}
-          onPress={handleSignIn}
-          disabled={isLoading}
-        />
-
-        <Spacer size={12} />
-
-        {/* DEV ONLY — remove before production */}
-        <Pressable
-          onPress={handleDevSkip}
-          style={({ pressed }) => ({
-            borderWidth: 1,
-            borderStyle: 'dashed',
-            borderColor: '#f59e0b',
-            backgroundColor: pressed ? 'rgba(245, 158, 11, 0.15)' : 'rgba(245, 158, 11, 0.08)',
-            borderRadius: 8,
-            paddingVertical: 12,
-            paddingHorizontal: 16,
-            alignItems: 'center',
-          })}
-        >
-          <Text style={{ color: '#f59e0b', fontSize: 12, fontWeight: '700', letterSpacing: 0.5 }}>
-            DEV: SKIP LOGIN →
-          </Text>
-        </Pressable>
-
-        <Spacer size={20} />
-        <View style={{ flexDirection: 'row', justifyContent: 'center' }}>
-          <Text style={{ color: colors.mutedText as string }}>Don't have an account? </Text>
-          <Link href="/(auth)/sign-up" asChild>
-            <Text style={{ color: colors.primary as string, fontWeight: '700' }}>Sign Up</Text>
-          </Link>
-        </View>
-      </View>
-    </ScrollView>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </Screen>
   );
 }
-
-

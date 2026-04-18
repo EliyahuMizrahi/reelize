@@ -1,7 +1,6 @@
 import logging
 import os
 import shutil
-import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -17,7 +16,7 @@ if _FFMPEG_BIN.exists():
 
 from dotenv import load_dotenv
 from fastapi import (
-    BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile,
+    BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, UploadFile,
 )
 
 load_dotenv()
@@ -26,6 +25,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 
+from auth import CurrentUser, get_current_user
 from supabase_client import get_supabase
 from worker import process_job
 
@@ -40,12 +40,19 @@ def health() -> dict:
 @app.post("/analyze")
 async def analyze(
     background: BackgroundTasks,
+    user: CurrentUser = Depends(get_current_user),
     video: Optional[UploadFile] = File(None),
     url: Optional[str] = Form(None),
     clip_context: str = Form(""),
     game_hint: Optional[str] = Form(None),
+    clip_id: Optional[str] = Form(None),
 ) -> dict:
-    """Kick off a new analysis job. Provide either a `url` or an uploaded `video`."""
+    """Kick off an analysis job.
+
+    Requires a Supabase bearer token. `user_id` is stamped from the JWT.
+    If `clip_id` is provided the job is linked back to that clip row so the
+    worker can promote its status to `ready` on completion.
+    """
     if not url and not video:
         raise HTTPException(400, "Provide either `url` or `video`")
     if url and video:
@@ -61,6 +68,8 @@ async def analyze(
         "source_url": url,
         "clip_context": clip_context,
         "game_hint": game_hint,
+        "user_id": user.id,
+        "clip_id": clip_id,
     }
     resp = get_supabase().table("jobs").insert(row).execute()
     job_id = resp.data[0]["id"]
@@ -81,31 +90,45 @@ async def analyze(
         upload_path=upload_path,
         clip_context=clip_context,
         game_hint=game_hint,
+        clip_id=clip_id,
     )
-    return {"job_id": job_id, "status": "queued"}
+    return {"job_id": job_id, "status": "queued", "clip_id": clip_id}
 
 
 @app.get("/jobs/{job_id}")
-def get_job(job_id: str) -> dict:
+def get_job(
+    job_id: str,
+    user: CurrentUser = Depends(get_current_user),
+) -> dict:
     resp = (
         get_supabase()
         .table("jobs")
         .select("*")
         .eq("id", job_id)
-        .single()
+        .maybe_single()
         .execute()
     )
-    if not resp.data:
+    data = resp.data
+    if not data:
         raise HTTPException(404, "job not found")
-    return resp.data
+    if data.get("user_id") and data["user_id"] != user.id:
+        # Don't leak existence of other users' jobs.
+        raise HTTPException(404, "job not found")
+    return data
 
 
 @app.get("/jobs")
-def list_jobs(limit: int = 20) -> list[dict]:
+def list_jobs(
+    user: CurrentUser = Depends(get_current_user),
+    limit: int = 20,
+) -> list[dict]:
     resp = (
         get_supabase()
         .table("jobs")
-        .select("id,status,source_type,source_url,created_at,updated_at,error")
+        .select(
+            "id,status,source_type,source_url,clip_id,created_at,updated_at,error"
+        )
+        .eq("user_id", user.id)
         .order("created_at", desc=True)
         .limit(limit)
         .execute()

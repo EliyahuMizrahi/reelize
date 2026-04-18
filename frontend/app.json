@@ -1,18 +1,20 @@
 {
   "expo": {
-    "name": "App",
-    "slug": "app",
+    "name": "Reelize",
+    "slug": "reelize",
     "version": "1.0.0",
     "orientation": "portrait",
-    "scheme": "app",
+    "scheme": "reelize",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.reelize.app"
     },
     "android": {
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.reelize.app"
     },
     "web": {
       "output": "static"
@@ -22,9 +24,9 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#0f0f12",
+          "backgroundColor": "#04141E",
           "dark": {
-            "backgroundColor": "#0f0f12"
+            "backgroundColor": "#04141E"
           }
         }
       ]

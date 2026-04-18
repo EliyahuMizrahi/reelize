@@ -1,82 +1,73 @@
 import { useAppTheme } from "@/contexts/ThemeContext";
-import { FontAwesome5 } from "@expo/vector-icons";
+import { Feather } from "@expo/vector-icons";
 import { usePathname, useRouter } from "expo-router";
 import React, { useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, View } from "react-native";
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
+import { NoctisLockup, Noctis } from "@/components/brand/Noctis";
+import { palette, radii } from "@/constants/tokens";
+import { Text, Overline } from "@/components/ui/Text";
 
 type WebSidebarProps = {
   onNewVideo: () => void;
 };
 
+type NavIcon = 'film' | 'plus' | 'book-open' | 'user' | 'settings';
+type NavItem = {
+  name: string;
+  label: string;
+  icon: NavIcon;
+  path: string;
+  group?: string;
+};
+
+const navItems: NavItem[] = [
+  { name: "feed", label: "Feed", icon: "film", path: "/(tabs)/feed", group: "Study" },
+  { name: "library", label: "Library", icon: "book-open", path: "/(tabs)/library", group: "Study" },
+  { name: "create", label: "Create", icon: "plus", path: "/(tabs)/create", group: "Make" },
+  { name: "profile", label: "Profile", icon: "user", path: "/(tabs)/profile", group: "You" },
+];
+
 export const WebSidebar: React.FC<WebSidebarProps> = ({ onNewVideo }) => {
   const router = useRouter();
   const pathname = usePathname();
-  const { colors } = useAppTheme();
+  const { colors, isDark } = useAppTheme();
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [isLogoHovered, setIsLogoHovered] = useState(false);
 
   const width = useSharedValue(260);
-  const buttonWidth = useSharedValue(228);
-  const textWidth = useSharedValue(150);
   const textOpacity = useSharedValue(1);
-  const textTranslate = useSharedValue(0);
-  const hamburgerOpacity = useSharedValue(1);
 
-  const navItems = [
-    { name: "tab1", label: "Tab 1", icon: "square" },
-    { name: "tab2", label: "Tab 2", icon: "square" },
-    { name: "tab3", label: "Tab 3", icon: "square" },
-    { name: "tab4", label: "Tab 4", icon: "square" },
-  ];
-
-  const isActive = (tabName: string) => pathname.includes(tabName);
+  const isActive = (item: NavItem) => pathname.includes(item.name);
 
   const toggleSidebar = () => {
-    if (isCollapsed) {
-      textTranslate.value = -20;
-      textOpacity.value = 0;
-      width.value = withTiming(260, { duration: 300 });
-      buttonWidth.value = withTiming(228, { duration: 300 });
-      textWidth.value = withTiming(150, { duration: 300 });
-      hamburgerOpacity.value = withTiming(1, { duration: 200 });
-      setTimeout(() => {
-        textOpacity.value = withTiming(1, { duration: 200 });
-        textTranslate.value = withTiming(0, { duration: 250 });
-      }, 100);
+    const next = !isCollapsed;
+    if (next) {
+      textOpacity.value = withTiming(0, { duration: 120 });
+      width.value = withTiming(74, { duration: 260 });
     } else {
-      textOpacity.value = withTiming(0, { duration: 150 });
-      textTranslate.value = withTiming(-20, { duration: 250 });
-      textWidth.value = withTiming(0, { duration: 300 });
-      buttonWidth.value = withTiming(38, { duration: 300 });
-      width.value = withTiming(70, { duration: 300 });
-      hamburgerOpacity.value = withTiming(0, { duration: 150 });
+      width.value = withTiming(260, { duration: 260 });
+      setTimeout(() => {
+        textOpacity.value = withTiming(1, { duration: 220 });
+      }, 120);
     }
-    setIsCollapsed(!isCollapsed);
+    setIsCollapsed(next);
   };
 
-  const animatedSidebarStyle = useAnimatedStyle(() => ({
-    width: width.value,
-  }));
-
-  const animatedButtonStyle = useAnimatedStyle(() => ({
-    width: buttonWidth.value,
-  }));
-
+  const animatedSidebarStyle = useAnimatedStyle(() => ({ width: width.value }));
   const animatedTextStyle = useAnimatedStyle(() => ({
-    width: textWidth.value,
     opacity: textOpacity.value,
-    transform: [{ translateX: textTranslate.value }],
-    marginLeft: textWidth.value < 16 ? 0 : 12,
   }));
 
-  const animatedHamburgerStyle = useAnimatedStyle(() => ({
-    opacity: hamburgerOpacity.value,
-  }));
+  const groups: Record<string, NavItem[]> = {};
+  navItems.forEach((n) => {
+    const g = n.group || "General";
+    groups[g] = groups[g] || [];
+    groups[g].push(n);
+  });
 
   return (
     <Animated.View
@@ -85,219 +76,167 @@ export const WebSidebar: React.FC<WebSidebarProps> = ({ onNewVideo }) => {
           backgroundColor: colors.card as string,
           borderRightWidth: 1,
           borderRightColor: colors.border as string,
-          paddingVertical: 20,
+          paddingTop: 20,
+          paddingBottom: 20,
           overflow: "hidden",
+          height: "100%",
         },
         animatedSidebarStyle,
       ]}
     >
-      <View style={{ paddingHorizontal: 16, width: "100%", flex: 1 }}>
+      <View style={{ paddingHorizontal: 18, flex: 1 }}>
         <View
           style={{
             flexDirection: "row",
-            justifyContent: "space-between",
             alignItems: "center",
-            marginBottom: 16,
+            justifyContent: "space-between",
+            marginBottom: 28,
           }}
         >
           <Pressable
-            onPress={isCollapsed ? toggleSidebar : undefined}
-            onHoverIn={() => isCollapsed && setIsLogoHovered(true)}
-            onHoverOut={() => setIsLogoHovered(false)}
+            onPress={() => router.push("/(tabs)/feed" as any)}
+            style={{ flexDirection: "row", alignItems: "center", gap: 10 }}
+          >
+            <Noctis variant="mark" size={28} color={isDark ? palette.mist : palette.ink} eyeColor={palette.sage} />
+            <Animated.View style={animatedTextStyle}>
+              {!isCollapsed ? (
+                <Text variant="bodyLg" family="serif" weight="bold">
+                  Reelize
+                </Text>
+              ) : null}
+            </Animated.View>
+          </Pressable>
+          <Pressable onPress={toggleSidebar} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 0.9, padding: 4 })}>
+            <Feather name={isCollapsed ? "chevron-right" : "chevron-left"} size={16} color={colors.mutedText as string} />
+          </Pressable>
+        </View>
+
+        <Pressable
+          onPress={onNewVideo}
+          style={({ pressed }) => ({
+            flexDirection: "row",
+            alignItems: "center",
+            backgroundColor: colors.primary as string,
+            borderRadius: radii.md,
+            height: 40,
+            paddingHorizontal: 10,
+            opacity: pressed ? 0.88 : 1,
+            marginBottom: 28,
+            gap: 10,
+          })}
+        >
+          <View
             style={{
-              flexDirection: "row",
+              width: 22,
+              height: 22,
               alignItems: "center",
-              height: 38,
-              position: "relative",
+              justifyContent: "center",
             }}
           >
-            <View
-              style={{
-                width: 32,
-                height: 32,
-                borderRadius: 8,
-                borderWidth: 1,
-                borderStyle: "dashed",
-                borderColor: colors.mutedText as string,
-                backgroundColor: colors.elevated as string,
-                justifyContent: "center",
-                alignItems: "center",
-              }}
-            >
-              <Text style={{ color: colors.mutedText as string, fontSize: 7, fontWeight: "600" }}>
-                32×32
+            <Feather name="plus" size={16} color={isDark ? palette.ink : palette.mist} />
+          </View>
+          <Animated.View style={animatedTextStyle}>
+            {!isCollapsed ? (
+              <Text variant="bodySm" weight="semibold" color={isDark ? palette.ink : palette.mist}>
+                New lesson
               </Text>
-            </View>
-            {isCollapsed && isLogoHovered && (
-              <View
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  width: 32,
-                  height: 32,
-                  backgroundColor: colors.card as string,
-                  justifyContent: "center",
-                  alignItems: "center",
-                  borderRadius: 8,
-                }}
-              >
-                <FontAwesome5
-                  name="bars"
-                  size={18}
-                  color={colors.mutedText as string}
-                />
-              </View>
-            )}
-          </Pressable>
-          <Animated.View style={animatedHamburgerStyle}>
-            <Pressable
-              onPress={toggleSidebar}
-              style={({ pressed }) => ({
-                padding: 8,
-                paddingRight: 4,
-                opacity: pressed ? 0.7 : 1,
-              })}
-            >
-              <FontAwesome5
-                name="bars"
-                size={18}
-                color={colors.mutedText as string}
-              />
-            </Pressable>
+            ) : null}
           </Animated.View>
-        </View>
-
-        <View
-          style={{
-            marginBottom: 24,
-            overflow: "hidden",
-          }}
-        >
-          <Animated.View style={animatedButtonStyle}>
-            <Pressable
-              onPress={onNewVideo}
-              style={({ pressed }) => ({
-                flexDirection: "row",
-                alignItems: "center",
-                backgroundColor: colors.primary as string,
-                borderRadius: 8,
-                height: 38,
-                opacity: pressed ? 0.8 : 1,
-                overflow: "hidden",
-              })}
-            >
-              <View
-                style={{
-                  width: 38,
-                  height: 38,
-                  justifyContent: "center",
-                  alignItems: "center",
-                }}
-              >
-                <FontAwesome5 name="plus" size={18} color={colors.onPrimary as string} />
-              </View>
-              <Animated.View
-                style={[
-                  { overflow: "hidden", justifyContent: "center" },
-                  animatedTextStyle,
-                ]}
-              >
-                <Text
-                  numberOfLines={1}
-                  style={{
-                    color: colors.onPrimary as string,
-                    fontSize: 15,
-                    fontWeight: "600",
-                    paddingRight: 16,
-                  }}
-                >
-                  New Video
+          <View style={{ flex: 1 }} />
+          {!isCollapsed ? (
+            <Animated.View style={animatedTextStyle}>
+              <View style={{
+                paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4,
+                backgroundColor: 'rgba(0,0,0,0.12)',
+              }}>
+                <Text variant="monoSm" family="mono" color={isDark ? palette.ink : palette.mist}>
+                  ⌘ N
                 </Text>
+              </View>
+            </Animated.View>
+          ) : null}
+        </Pressable>
+
+        {Object.entries(groups).map(([group, items]) => (
+          <View key={group} style={{ marginBottom: 20 }}>
+            {!isCollapsed ? (
+              <Animated.View style={animatedTextStyle}>
+                <Overline muted style={{ marginBottom: 8, paddingHorizontal: 4 }}>
+                  {group}
+                </Overline>
               </Animated.View>
-            </Pressable>
-          </Animated.View>
-        </View>
-
-        <View style={{ marginBottom: 24 }}>
-          {navItems.map((item) => {
-            const active = isActive(item.name);
-            const color = active
-              ? (colors.primary as string)
-              : (colors.mutedText as string);
-            const bgColor = active
-              ? (colors.primary as string) + "2A"
-              : "transparent";
-
-            return (
-              <View key={item.name} style={{ marginBottom: 8 }}>
-                <Animated.View style={animatedButtonStyle}>
-                  <Pressable
-                    onPress={() => {
-                      router.push(`/(tabs)/${item.name}` as any);
-                    }}
-                    style={({ pressed }) => ({
-                      flexDirection: "row",
-                      alignItems: "center",
-                      backgroundColor: bgColor,
-                      borderRadius: 8,
-                      height: 38,
-                      opacity: pressed ? 0.7 : 1,
-                      overflow: "hidden",
-                      position: "relative",
-                    })}
-                  >
-                    {active && (
-                      <View
-                        style={{
-                          position: "absolute",
-                          left: 0,
-                          top: 8,
-                          bottom: 8,
-                          width: 3,
-                          borderRadius: 2,
-                          backgroundColor: colors.primary as string,
-                        }}
-                      />
-                    )}
+            ) : null}
+            {items.map((item) => {
+              const active = isActive(item);
+              const color = active ? (colors.primary as string) : (colors.mutedText as string);
+              const bg = active ? (colors.primary as string) + "1A" : "transparent";
+              return (
+                <Pressable
+                  key={item.name}
+                  onPress={() => router.push(item.path as any)}
+                  style={({ pressed, hovered }: any) => ({
+                    flexDirection: "row",
+                    alignItems: "center",
+                    backgroundColor: bg || (hovered ? (colors.elevated as string) : "transparent"),
+                    borderRadius: radii.sm,
+                    height: 36,
+                    paddingHorizontal: 6,
+                    marginBottom: 2,
+                    opacity: pressed ? 0.7 : 1,
+                    gap: 10,
+                  })}
+                >
+                  {active ? (
                     <View
                       style={{
-                        width: 38,
-                        height: 38,
-                        justifyContent: "center",
-                        alignItems: "center",
+                        position: "absolute",
+                        left: -18,
+                        top: 8,
+                        bottom: 8,
+                        width: 3,
+                        borderRadius: 2,
+                        backgroundColor: colors.primary as string,
                       }}
-                    >
-                      <FontAwesome5
-                        name={item.icon as any}
-                        size={18}
-                        color={color}
-                      />
-                    </View>
-                    <Animated.View
-                      style={[
-                        { overflow: "hidden", justifyContent: "center" },
-                        animatedTextStyle,
-                      ]}
-                    >
-                      <Text
-                        numberOfLines={1}
-                        style={{
-                          color: color,
-                          fontSize: 15,
-                          fontWeight: active ? "700" : "500",
-                          paddingRight: 16,
-                        }}
-                      >
+                    />
+                  ) : null}
+                  <View style={{ width: 22, alignItems: "center" }}>
+                    <Feather name={item.icon as any} size={16} color={color} />
+                  </View>
+                  <Animated.View style={[{ flex: 1 }, animatedTextStyle]}>
+                    {!isCollapsed ? (
+                      <Text variant="bodySm" weight={active ? "semibold" : "medium"} color={color}>
                         {item.label}
                       </Text>
-                    </Animated.View>
-                  </Pressable>
-                </Animated.View>
-              </View>
-            );
+                    ) : null}
+                  </Animated.View>
+                </Pressable>
+              );
+            })}
+          </View>
+        ))}
+
+        <View style={{ flex: 1 }} />
+
+        <Pressable
+          onPress={() => router.push("/settings" as any)}
+          style={({ pressed, hovered }: any) => ({
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 10,
+            paddingHorizontal: 6,
+            height: 36,
+            borderRadius: radii.sm,
+            backgroundColor: hovered ? (colors.elevated as string) : "transparent",
+            opacity: pressed ? 0.7 : 1,
           })}
-        </View>
+        >
+          <Feather name="settings" size={16} color={colors.mutedText as string} />
+          <Animated.View style={animatedTextStyle}>
+            {!isCollapsed ? (
+              <Text variant="bodySm" muted>Settings</Text>
+            ) : null}
+          </Animated.View>
+        </Pressable>
       </View>
     </Animated.View>
   );

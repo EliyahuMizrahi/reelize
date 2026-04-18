@@ -13,13 +13,13 @@ services:
       - torch-cache:/cache/torch
       - whisper-cache:/cache/whisper
       - demucs-cache:/root/.cache/demucs
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
     restart: unless-stopped
 
 volumes:
