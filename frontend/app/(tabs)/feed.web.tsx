@@ -1,9 +1,8 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import {
   View,
   ScrollView,
   Pressable,
-  useWindowDimensions,
   StyleSheet,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -11,20 +10,16 @@ import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated from 'react-native-reanimated';
 
-import { Surface, Divider } from '@/components/ui/Surface';
-import { Button } from '@/components/ui/Button';
-import { TextField } from '@/components/ui/TextField';
-import { IconButton } from '@/components/ui/IconButton';
+import { Surface } from '@/components/ui/Surface';
 import { Chip } from '@/components/ui/Chip';
 import { Headline, Title, TitleSm, BodySm, Mono, MonoSm, Overline, Text } from '@/components/ui/Text';
 import { Noctis } from '@/components/brand/Noctis';
 import { Shards } from '@/components/brand/Shards';
 import { StyleDNA, DEFAULT_DNA, type DNAToken } from '@/components/brand/StyleDNA';
-import { palette, spacing, radii, layout } from '@/constants/tokens';
+import { palette, spacing, radii } from '@/constants/tokens';
 import { ENTER, stagger } from '@/components/ui/motion';
 import { useAppTheme } from '@/contexts/ThemeContext';
-import { useClasses, useFeed, useProfileStats, useStreakGrid } from '@/data/hooks';
-import type { StreakDay } from '@/data/queries';
+import { useClasses, useFeed, useProfileStats } from '@/data/hooks';
 import type { Row } from '@/types/supabase';
 
 function formatRelative(iso: string): string {
@@ -42,60 +37,12 @@ function formatRelative(iso: string): string {
   return `${mo}mo ago`;
 }
 
-const WIDE_BREAK = 1280;
-
-// ───────────────────────── Top bar ─────────────────────────
-function TopBar() {
-  const router = useRouter();
-  const { colors } = useAppTheme();
-  return (
-    <View
-      style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingVertical: spacing.xl,
-        paddingHorizontal: spacing['2xl'],
-        borderBottomWidth: 1,
-        borderBottomColor: colors.border as string,
-        gap: spacing.lg,
-      }}
-    >
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-        <Mono muted>Shelf</Mono>
-        <Mono muted>/</Mono>
-        <Mono>Dashboard</Mono>
-      </View>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, flex: 1, justifyContent: 'flex-end' }}>
-        <View style={{ maxWidth: 280, flex: 1 }}>
-          <TextField
-            placeholder="Search your shelf"
-            variant="boxed"
-            leading={<Feather name="search" size={14} color={colors.mutedText as string} />}
-          />
-        </View>
-        <IconButton variant="filled" size={40} accessibilityLabel="Filter">
-          <Feather name="sliders" size={16} color={colors.text as string} />
-        </IconButton>
-        <Button
-          variant="shimmer"
-          size="md"
-          title="New lesson"
-          haptic={false}
-          leading={<Feather name="plus" size={14} color={palette.ink} />}
-          onPress={() => router.push('/(tabs)/create' as any)}
-        />
-      </View>
-    </View>
-  );
-}
-
 // ───────────────────────── Stat tile ─────────────────────────
 interface StatProps {
   label: string;
   value: string;
   delta?: string;
-  chart: 'spark' | 'bars' | 'flame' | 'ring';
+  chart: 'spark' | 'bars' | 'ring';
   accent: string;
   index: number;
 }
@@ -124,7 +71,7 @@ function StatTile({ label, value, delta, chart, accent, index }: StatProps) {
   );
 }
 
-function StatGlyph({ kind, color }: { kind: 'spark' | 'bars' | 'flame' | 'ring'; color: string }) {
+function StatGlyph({ kind, color }: { kind: 'spark' | 'bars' | 'ring'; color: string }) {
   if (kind === 'bars') {
     const heights = [10, 16, 12, 22, 18, 28, 20];
     return (
@@ -142,13 +89,6 @@ function StatGlyph({ kind, color }: { kind: 'spark' | 'bars' | 'flame' | 'ring';
         {pts.map((p, i) => (
           <View key={i} style={{ width: 6, height: p * 28, borderRadius: 1.5, backgroundColor: color, opacity: 0.35 + p * 0.6 }} />
         ))}
-      </View>
-    );
-  }
-  if (kind === 'flame') {
-    return (
-      <View style={{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center' }}>
-        <Feather name="zap" size={18} color={color} />
       </View>
     );
   }
@@ -219,109 +159,74 @@ function ClipCard({ index, tokens, title, className, classColor, tint, duration,
   );
 }
 
-// ───────────────────────── Streak calendar ─────────────────────────
-function StreakCalendar() {
+// ───────────────────────── Empty state ─────────────────────────
+function EmptyState({
+  hasCourses,
+  onNewCourse,
+  onNewLesson,
+}: {
+  hasCourses: boolean;
+  onNewCourse: () => void;
+  onNewLesson: () => void;
+}) {
   const { colors } = useAppTheme();
-  const { data: days } = useStreakGrid(16);
-  const intensityColor = (v: number) => {
-    if (v === 0) return colors.inputBackground as string;
-    if (v === 1) return palette.teal + '66';
-    if (v === 2) return palette.teal + 'AA';
-    if (v === 3) return palette.sage;
-    return palette.sageSoft;
-  };
-
-  const streakDays: StreakDay[] = days ?? [];
-  // Build 16 columns × 7 rows
-  const cols: StreakDay[][] = [];
-  for (let w = 0; w < 16; w++) {
-    const col: StreakDay[] = [];
-    for (let d = 0; d < 7; d++) {
-      const idx = w * 7 + d;
-      if (idx < streakDays.length) col.push(streakDays[idx]);
-    }
-    cols.push(col);
-  }
-
   return (
-    <Surface padded={spacing.xl} radius="xl" style={{ gap: spacing.lg }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <View>
-          <Overline muted>Streak calendar</Overline>
-          <TitleSm style={{ marginTop: 4 }}>16 weeks, quietly kept.</TitleSm>
-        </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <MonoSm muted>less</MonoSm>
-          {[0, 1, 2, 3, 4].map((v) => (
-            <View key={v} style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: intensityColor(v) }} />
-          ))}
-          <MonoSm muted>more</MonoSm>
-        </View>
-      </View>
-      <View style={{ flexDirection: 'row', gap: 3 }}>
-        {cols.map((col, ci) => (
-          <View key={ci} style={{ gap: 3 }}>
-            {col.map((day, di) => (
-              <View
-                key={di}
-                style={{
-                  width: 14,
-                  height: 14,
-                  borderRadius: 3,
-                  backgroundColor: intensityColor(day.intensity),
-                }}
-              />
-            ))}
-          </View>
-        ))}
-      </View>
-      <Divider />
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-        <View>
-          <Mono>04 days</Mono>
-          <MonoSm muted>current streak</MonoSm>
-        </View>
-        <View>
-          <Mono>11 days</Mono>
-          <MonoSm muted>longest run</MonoSm>
-        </View>
-      </View>
-    </Surface>
-  );
-}
-
-// ───────────────────────── Class progress ─────────────────────────
-function ClassProgress() {
-  const { data: classes } = useClasses();
-  const list = classes ?? [];
-  return (
-    <Surface padded={spacing.xl} radius="xl" style={{ gap: spacing.lg }}>
-      <Overline muted>Class progress</Overline>
-      <View style={{ gap: spacing.lg }}>
-        {list.map((cls) => {
-          const avgDone = Math.min(1, 0.1 + cls.clip_count / 20);
-          return (
-            <View key={cls.id} style={{ gap: 8 }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: cls.color_hex }} />
-                  <BodySm weight="semibold">{cls.name}</BodySm>
-                </View>
-                <MonoSm muted>{`${cls.clip_count} clips`}</MonoSm>
-              </View>
-              <View style={{ height: 4, borderRadius: 2, backgroundColor: palette.inkBorder, overflow: 'hidden' }}>
-                <View
-                  style={{
-                    width: `${avgDone * 100}%`,
-                    height: '100%',
-                    backgroundColor: cls.color_hex,
-                    opacity: 0.85,
-                  }}
-                />
-              </View>
-            </View>
-          );
-        })}
+    <Surface
+      padded={spacing['3xl']}
+      radius="xl"
+      bordered
+      style={{ gap: spacing.lg, alignItems: 'flex-start' }}
+    >
+      <Overline muted>GET STARTED</Overline>
+      <Title>{hasCourses ? 'Make your first lesson.' : 'Start your first course.'}</Title>
+      <BodySm muted style={{ maxWidth: 520 }}>
+        {hasCourses
+          ? 'Pick a reel you love, we\u2019ll pull its Style DNA and turn it into a short lesson for you.'
+          : 'Courses hold topics and lessons. Create one from the library, then add lessons to it.'}
+      </BodySm>
+      <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.sm, flexWrap: 'wrap' }}>
+        {!hasCourses ? (
+          <Pressable
+            onPress={onNewCourse}
+            style={({ hovered, pressed }: any) => ({
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 6,
+              height: 36,
+              paddingHorizontal: 14,
+              borderRadius: radii.sm,
+              backgroundColor: pressed || hovered ? (colors.primary as string) : (colors.primary as string) + 'DD',
+            })}
+          >
+            <Feather name="plus" size={14} color={colors.onPrimary as string} />
+            <Text variant="bodySm" weight="semibold" color={colors.onPrimary as string}>
+              New course
+            </Text>
+          </Pressable>
+        ) : null}
+        <Pressable
+          onPress={hasCourses ? onNewLesson : onNewCourse}
+          style={({ hovered, pressed }: any) => ({
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 6,
+            height: 36,
+            paddingHorizontal: 14,
+            borderRadius: radii.sm,
+            borderWidth: 1,
+            borderColor: colors.border as string,
+            backgroundColor: pressed || hovered ? (colors.elevated as string) : (colors.inputBackground as string),
+          })}
+        >
+          <Feather
+            name={hasCourses ? 'plus' : 'book-open'}
+            size={14}
+            color={colors.text as string}
+          />
+          <Text variant="bodySm" weight="medium" color={colors.text as string}>
+            {hasCourses ? 'New lesson' : 'Go to library'}
+          </Text>
+        </Pressable>
       </View>
     </Surface>
   );
@@ -331,8 +236,6 @@ function ClassProgress() {
 export default function FeedWebScreen() {
   const router = useRouter();
   const { colors } = useAppTheme();
-  const { width } = useWindowDimensions();
-  const wide = width >= WIDE_BREAK;
 
   const { data: feedRows } = useFeed(12);
   const { data: classes } = useClasses();
@@ -340,6 +243,8 @@ export default function FeedWebScreen() {
 
   const allClips = feedRows ?? [];
   const classList = classes ?? [];
+  const hasLessons = allClips.length > 0;
+  const hasCourses = classList.length > 0;
   const recentClips = useMemo<Row<'clips'>[]>(() => allClips.slice(0, 6), [allClips]);
   const resumeClips = useMemo<Row<'clips'>[]>(() => allClips.slice(0, 4), [allClips]);
 
@@ -350,96 +255,88 @@ export default function FeedWebScreen() {
     return `${m}:${r.toString().padStart(2, '0')}`;
   }
 
-  const primaryColumn = (
-    <View style={{ gap: spacing['3xl'] }}>
-      {/* Stats band */}
-      <View>
-        <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: spacing.lg }}>
-          <Headline>Dashboard</Headline>
-          <BodySm italic family="serif" muted>
-            tuesday afternoon, quiet shelf.
-          </BodySm>
-        </View>
-        <View style={{ flexDirection: 'row', gap: spacing.lg, flexWrap: 'wrap' }}>
-          <StatTile index={0} label="Clips generated" value={String(stats?.clipCount ?? 0)} chart="bars" accent={palette.sage} />
-          <StatTile index={1} label="Classes" value={String(stats?.classCount ?? 0)} chart="ring" accent={palette.tealBright} />
-          <StatTile index={2} label="Topics" value={String(stats?.topicCount ?? 0)} chart="spark" accent={palette.gold} />
-          <StatTile index={3} label="Current streak" value={String(stats?.streakDays ?? 0).padStart(2, '0')} delta="days" chart="flame" accent={palette.alertSoft} />
-        </View>
-      </View>
-
-      {/* Recent clips rail */}
-      <View>
-        <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: spacing.lg }}>
-          <View>
-            <Overline muted>Recent clips</Overline>
-            <Title style={{ marginTop: 4 }}>Fresh from the lab.</Title>
-          </View>
-          <Pressable onPress={() => router.push('/(tabs)/library' as any)}>
-            <Mono color={palette.teal}>view all &rarr;</Mono>
-          </Pressable>
-        </View>
-        <View style={{ flexDirection: 'row', gap: spacing.lg, flexWrap: 'wrap' }}>
-          {recentClips.map((c, i) => (
-            <ClipCard
-              key={c.id}
-              index={i}
-              tokens={DEFAULT_DNA}
-              title={c.title}
-              className="Class"
-              classColor={palette.sage}
-              tint={c.thumbnail_color ?? palette.tealDeep}
-              duration={fmtDur(c.duration_s)}
-              creator={c.source_creator ?? '@source'}
-            />
-          ))}
-        </View>
-      </View>
-
-      {/* Resume row */}
-      <View>
-        <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: spacing.lg }}>
-          <View>
-            <Overline muted>Continue</Overline>
-            <Title style={{ marginTop: 4 }}>Pick up where you left off.</Title>
-          </View>
-          <Noctis variant="head" size={28} color={colors.mutedText as string} eyeColor={palette.sage} />
-        </View>
-        <View style={{ flexDirection: 'row', gap: spacing.lg, flexWrap: 'wrap' }}>
-          {resumeClips.map((c, i) => (
-            <Animated.View key={c.id} entering={ENTER.fadeUp(stagger(i, 70, 40))} style={{ flex: 1, minWidth: 240 }}>
-              <Pressable onPress={() => router.push(`/player/${c.id}` as any)}>
-                <Surface padded={spacing.xl} radius="xl" style={{ gap: spacing.md, minHeight: 160 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <Chip label="Class" variant="class" classColor={palette.sage} size="sm" />
-                    <MonoSm muted>{formatRelative(c.created_at)}</MonoSm>
-                  </View>
-                  <TitleSm numberOfLines={2}>{c.title}</TitleSm>
-                </Surface>
-              </Pressable>
-            </Animated.View>
-          ))}
-        </View>
-      </View>
-    </View>
-  );
-
-  const sideColumn = (
-    <View style={{ gap: spacing.xl, width: 320 }}>
-      <StreakCalendar />
-      <ClassProgress />
-    </View>
-  );
-
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background as string }}>
-      <TopBar />
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: spacing['2xl'], paddingBottom: spacing['5xl'] }}>
-        <View style={{ flexDirection: 'row', gap: spacing['2xl'], alignItems: 'flex-start' }}>
-          <View style={{ flex: 1, minWidth: 0 }}>{primaryColumn}</View>
-          {wide ? sideColumn : null}
+    <ScrollView
+      style={{ flex: 1, backgroundColor: colors.background as string }}
+      contentContainerStyle={{ padding: spacing['2xl'], paddingBottom: spacing['5xl'] }}
+    >
+      <View style={{ gap: spacing['3xl'] }}>
+        {/* Stats band */}
+        <View>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: spacing.lg }}>
+            <Headline>Dashboard</Headline>
+          </View>
+          <View style={{ flexDirection: 'row', gap: spacing.lg, flexWrap: 'wrap' }}>
+            <StatTile index={0} label="Lessons generated" value={String(stats?.clipCount ?? 0)} chart="bars" accent={palette.sage} />
+            <StatTile index={1} label="Courses" value={String(stats?.classCount ?? 0)} chart="ring" accent={palette.tealBright} />
+            <StatTile index={2} label="Topics" value={String(stats?.topicCount ?? 0)} chart="spark" accent={palette.gold} />
+          </View>
         </View>
-      </ScrollView>
-    </View>
+
+        {!hasLessons ? (
+          <EmptyState
+            hasCourses={hasCourses}
+            onNewCourse={() => router.push('/(tabs)/library' as any)}
+            onNewLesson={() => router.push('/(tabs)/create' as any)}
+          />
+        ) : (
+          <>
+            {/* Recent lessons rail */}
+            <View>
+              <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: spacing.lg }}>
+                <View>
+                  <Overline muted>Recent lessons</Overline>
+                  <Title style={{ marginTop: 4 }}>Fresh from the lab.</Title>
+                </View>
+                <Pressable onPress={() => router.push('/(tabs)/library' as any)}>
+                  <Mono color={palette.teal}>view all &rarr;</Mono>
+                </Pressable>
+              </View>
+              <View style={{ flexDirection: 'row', gap: spacing.lg, flexWrap: 'wrap' }}>
+                {recentClips.map((c, i) => (
+                  <ClipCard
+                    key={c.id}
+                    index={i}
+                    tokens={DEFAULT_DNA}
+                    title={c.title}
+                    className="Course"
+                    classColor={palette.sage}
+                    tint={c.thumbnail_color ?? palette.tealDeep}
+                    duration={fmtDur(c.duration_s)}
+                    creator={c.source_creator ?? '@source'}
+                  />
+                ))}
+              </View>
+            </View>
+
+            {/* Resume row */}
+            <View>
+              <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: spacing.lg }}>
+                <View>
+                  <Overline muted>Continue</Overline>
+                  <Title style={{ marginTop: 4 }}>Pick up where you left off.</Title>
+                </View>
+                <Noctis variant="head" size={28} color={colors.mutedText as string} eyeColor={palette.sage} />
+              </View>
+              <View style={{ flexDirection: 'row', gap: spacing.lg, flexWrap: 'wrap' }}>
+                {resumeClips.map((c, i) => (
+                  <Animated.View key={c.id} entering={ENTER.fadeUp(stagger(i, 70, 40))} style={{ flex: 1, minWidth: 240 }}>
+                    <Pressable onPress={() => router.push(`/player/${c.id}` as any)}>
+                      <Surface padded={spacing.xl} radius="xl" style={{ gap: spacing.md, minHeight: 160 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <Chip label="Course" variant="class" classColor={palette.sage} size="sm" />
+                          <MonoSm muted>{formatRelative(c.created_at)}</MonoSm>
+                        </View>
+                        <TitleSm numberOfLines={2}>{c.title}</TitleSm>
+                      </Surface>
+                    </Pressable>
+                  </Animated.View>
+                ))}
+              </View>
+            </View>
+          </>
+        )}
+      </View>
+    </ScrollView>
   );
 }

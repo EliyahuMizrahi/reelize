@@ -65,8 +65,8 @@ function StepsIndicator({ step }: { step: number }) {
   );
 }
 
-// ───────────────────────── Top bar ─────────────────────────
-function TopBar({ step }: { step: number }) {
+// ───────────────────────── Step header ─────────────────────────
+function StepHeader({ step }: { step: number }) {
   const { colors } = useAppTheme();
   return (
     <View
@@ -81,18 +81,14 @@ function TopBar({ step }: { step: number }) {
         gap: spacing.xl,
       }}
     >
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-        <Mono muted>Shelf</Mono>
-        <Mono muted>/</Mono>
-        <Mono>New lesson</Mono>
+      <View>
+        <Overline muted>NEW LESSON</Overline>
+        <Title style={{ marginTop: 4 }}>Compose</Title>
       </View>
       <StepsIndicator step={step} />
       <View style={{ flexDirection: 'row', gap: spacing.sm }}>
         <IconButton variant="filled" size={36} accessibilityLabel="Save draft">
           <Feather name="save" size={14} color={colors.text as string} />
-        </IconButton>
-        <IconButton variant="filled" size={36} accessibilityLabel="Settings">
-          <Feather name="settings" size={14} color={colors.text as string} />
         </IconButton>
       </View>
     </View>
@@ -336,7 +332,7 @@ export default function CreateWebScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background as string }}>
-      <TopBar step={currentStep} />
+      <StepHeader step={currentStep} />
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingVertical: spacing['2xl'], paddingHorizontal: spacing['2xl'], paddingBottom: 140 }}

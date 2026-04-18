@@ -1,8 +1,7 @@
-import { WebSidebar } from "@/components/navigation/WebSidebar";
 import { useAppTheme } from "@/contexts/ThemeContext";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { Tabs, useRouter } from "expo-router";
+import { Tabs } from "expo-router";
 import React from "react";
 import { Platform, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -12,28 +11,8 @@ import { Text } from "@/components/ui/Text";
 
 type TabIconProps = { color: string; focused: boolean };
 
-function FeedIcon({ color }: TabIconProps) {
-  return <Feather name="film" size={22} color={color} />;
-}
-
-function CreateIcon({ focused }: TabIconProps) {
-  return (
-    <View
-      style={{
-        width: 40,
-        height: 40,
-        borderRadius: 12,
-        backgroundColor: focused ? palette.sage : palette.teal,
-        alignItems: "center",
-        justifyContent: "center",
-        transform: [{ rotate: "45deg" }],
-      }}
-    >
-      <View style={{ transform: [{ rotate: "-45deg" }] }}>
-        <Feather name="plus" size={20} color={palette.ink} />
-      </View>
-    </View>
-  );
+function CreateIcon({ color }: TabIconProps) {
+  return <Feather name="plus-square" size={26} color={color} />;
 }
 
 function LibraryIcon({ color }: TabIconProps) {
@@ -53,38 +32,22 @@ function TabLabel({ label, color }: { label: string; color: string }) {
 }
 
 export default function TabsLayout() {
-  const router = useRouter();
   const { colors } = useAppTheme();
   const isWeb = Platform.OS === "web";
 
-  const handleNewVideo = () => {
-    router.push("/(tabs)/create" as any);
-  };
-
   if (isWeb) {
     return (
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: colors.background as string,
-          flexDirection: "row",
+      <Tabs
+        screenOptions={{
+          headerShown: false,
+          tabBarStyle: { display: "none" },
         }}
       >
-        <WebSidebar onNewVideo={handleNewVideo} />
-        <View style={{ flex: 1 }}>
-          <Tabs
-            screenOptions={{
-              headerShown: false,
-              tabBarStyle: { display: "none" },
-            }}
-          >
-            <Tabs.Screen name="feed" />
-            <Tabs.Screen name="create" />
-            <Tabs.Screen name="library" />
-            <Tabs.Screen name="profile" />
-          </Tabs>
-        </View>
-      </View>
+        <Tabs.Screen name="feed" />
+        <Tabs.Screen name="create" />
+        <Tabs.Screen name="library" />
+        <Tabs.Screen name="profile" />
+      </Tabs>
     );
   }
 
@@ -99,7 +62,7 @@ export default function TabsLayout() {
         screenOptions={{
           headerShown: false,
           tabBarShowLabel: true,
-          tabBarActiveTintColor: colors.primary as string,
+          tabBarActiveTintColor: palette.mist,
           tabBarInactiveTintColor: colors.mutedText as string,
           tabBarStyle: {
             backgroundColor: colors.card as string,
@@ -114,16 +77,17 @@ export default function TabsLayout() {
         screenListeners={{
           tabPress: () => {
             if (Platform.OS !== "web") {
-              Haptics.selectionAsync().catch(() => {});
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
             }
           },
         }}
       >
+        <Tabs.Screen name="feed" options={{ href: null }} />
         <Tabs.Screen
-          name="feed"
+          name="library"
           options={{
-            tabBarIcon: (p) => <FeedIcon {...p} />,
-            tabBarLabel: ({ color }) => <TabLabel label="Feed" color={color} />,
+            tabBarIcon: (p) => <LibraryIcon {...p} />,
+            tabBarLabel: ({ color }) => <TabLabel label="Library" color={color} />,
           }}
         />
         <Tabs.Screen
@@ -134,17 +98,10 @@ export default function TabsLayout() {
           }}
         />
         <Tabs.Screen
-          name="library"
-          options={{
-            tabBarIcon: (p) => <LibraryIcon {...p} />,
-            tabBarLabel: ({ color }) => <TabLabel label="Library" color={color} />,
-          }}
-        />
-        <Tabs.Screen
           name="profile"
           options={{
             tabBarIcon: (p) => <ProfileIcon {...p} />,
-            tabBarLabel: ({ color }) => <TabLabel label="Profile" color={color} />,
+            tabBarLabel: ({ color }) => <TabLabel label="Dashboard" color={color} />,
           }}
         />
       </Tabs>

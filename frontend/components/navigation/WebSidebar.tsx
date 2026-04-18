@@ -218,7 +218,7 @@ export const WebSidebar: React.FC<WebSidebarProps> = ({ onNewVideo }) => {
         <View style={{ flex: 1 }} />
 
         <Pressable
-          onPress={() => router.push("/settings" as any)}
+          onPress={() => router.push("/profile/settings" as any)}
           style={({ pressed, hovered }: any) => ({
             flexDirection: "row",
             alignItems: "center",

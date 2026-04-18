@@ -40,12 +40,11 @@ import { useClasses } from '@/data/hooks';
 import { createClass } from '@/data/mutations';
 import type { ClassWithCounts } from '@/data/queries';
 
-type FilterKey = 'all' | 'recent' | 'active';
+type FilterKey = 'all' | 'recent';
 
 const FILTERS: { key: FilterKey; label: string }[] = [
   { key: 'all', label: 'All' },
   { key: 'recent', label: 'Recent' },
-  { key: 'active', label: 'Active' },
 ];
 
 const { width: SCREEN_W } = Dimensions.get('window');
@@ -70,8 +69,6 @@ export default function LibraryScreen() {
         const bt = b.last_active_at ? new Date(b.last_active_at).getTime() : 0;
         return bt - at;
       });
-    } else if (filter === 'active') {
-      return base.filter((c) => c.streak_days > 0);
     }
     return base;
   }, [filter, rows]);
@@ -93,7 +90,6 @@ export default function LibraryScreen() {
     setModalOpen(true);
   }, []);
 
-  const totalTopicCount = (rows ?? []).reduce((a, c) => a + c.topic_count, 0);
   const totalClipCount = (rows ?? []).reduce((a, c) => a + c.clip_count, 0);
 
   const handleCreated = useCallback(() => {
@@ -161,21 +157,13 @@ export default function LibraryScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* Header */}
-        <Animated.View entering={ENTER.fadeUp(40)} style={{ marginBottom: spacing['2xl'] }}>
+        <Animated.View entering={ENTER.fade(40)} style={{ marginBottom: spacing['2xl'] }}>
           <Display2>Your shelf.</Display2>
-          <BodySm
-            italic
-            family="serif"
-            muted
-            style={{ marginTop: 6 }}
-          >
-            {(rows?.length ?? 0) === 3 ? 'Three classes' : `${rows?.length ?? 0} classes`}. {numberWord(totalTopicCount)} topics.
-          </BodySm>
         </Animated.View>
 
         {/* Filter chips */}
         <Animated.View
-          entering={ENTER.fadeUp(120)}
+          entering={ENTER.fade(120)}
           style={{
             flexDirection: 'row',
             gap: spacing.sm,
@@ -254,17 +242,6 @@ export default function LibraryScreen() {
             </Pressable>
           </Animated.View>
         </View>
-
-        {/* FAB row below the grid */}
-        <View style={{ alignItems: 'flex-end', marginTop: spacing['2xl'] }}>
-          <Button
-            variant="shimmer"
-            size="md"
-            title="New class"
-            leading={<Feather name="plus" size={16} color={palette.ink} />}
-            onPress={onCreate}
-          />
-        </View>
       </ScrollView>
       <NewClassModal
         open={modalOpen}
@@ -314,7 +291,8 @@ function NewClassModal({
           flex: 1,
           backgroundColor: 'rgba(4,20,30,0.72)',
           alignItems: 'center',
-          justifyContent: 'center',
+          justifyContent: 'flex-start',
+          paddingTop: spacing['6xl'],
           paddingHorizontal: spacing.xl,
         }}
       >
@@ -369,13 +347,6 @@ function NewClassModal({
     </Modal>
   );
 }
-
-function numberWord(n: number): string {
-  const words = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty'];
-  if (n < words.length) return cap(words[n]);
-  return String(n);
-}
-function cap(s: string) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
 // -------------------- ClassCard --------------------
 
@@ -525,7 +496,7 @@ function ClassCard({ cls, index, width, height, onPress, dark }: ClassCardProps)
             }}
           >
             <Overline color={cls.color_hex} style={{ opacity: 0.9 }}>
-              {cls.streak_days > 0 ? `${cls.streak_days}-day streak` : 'resting'}
+              {`${cls.clip_count} ${cls.clip_count === 1 ? 'clip' : 'clips'}`}
             </Overline>
             <Title color={palette.mist} style={{ marginTop: 4 }} numberOfLines={1}>
               {cls.name}

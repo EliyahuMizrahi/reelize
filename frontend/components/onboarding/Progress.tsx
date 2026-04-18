@@ -20,7 +20,7 @@ interface OnboardingProgressProps {
  * Renders the mono step numbers 01 · 02 · 03 with a subtle shimmer
  * on the current step. Non-interactive; purely orientational.
  */
-export function OnboardingProgress({ step }: OnboardingProgressProps) {
+export default function OnboardingProgress({ step }: OnboardingProgressProps) {
   const shimmer = useSharedValue(0);
 
   useEffect(() => {
