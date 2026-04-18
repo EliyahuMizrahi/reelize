@@ -85,6 +85,11 @@ class AnalyzerConfig:
     # be killed, so every long-running loop polls this between API calls.
     should_cancel: Callable[[], bool] = field(default=lambda: False)
 
+    # Per-stage progress reporter. Worker binds this to emit job_events rows
+    # so the frontend sees "refining 3/7" instead of a dead spinner.
+    # Signature: (event_type, message, data_dict_or_None).
+    progress_callback: Optional[Callable[[str, str, Optional[dict]], None]] = None
+
 
 class AnalysisCancelled(RuntimeError):
     """Raised from inside the analyzer when the cancel flag flips."""
@@ -217,14 +222,26 @@ class VideoClipAnalyzer:
 
         try:
             self._log(f"🎬 Scene detection on {video_path} ...")
+            self._emit("video.scenes.start", "Detecting scene cuts")
             scene_boundaries, cut_points = self._detect_scenes(video_path)
             self._log(f"   {len(scene_boundaries)} scenes, {len(cut_points)} cut points")
+            self._emit(
+                "video.scenes.done",
+                f"{len(scene_boundaries)} scene(s), {len(cut_points)} cut point(s)",
+                {"scenes": len(scene_boundaries), "cuts": len(cut_points)},
+            )
 
             self._log("🖼️  Extracting smart frames ...")
+            self._emit("video.frames.start", "Extracting frames")
             frames, video_duration = self._extract_frames_smart(
                 video_path, scene_boundaries, cut_points
             )
             self._log(f"   {len(frames)} frames over {video_duration:.1f}s")
+            self._emit(
+                "video.frames.done",
+                f"{len(frames)} frame(s) over {video_duration:.1f}s",
+                {"frames": len(frames), "duration_s": video_duration},
+            )
 
             # PASS 1 — coarse
             self._check_cancel()
@@ -232,8 +249,14 @@ class VideoClipAnalyzer:
                 cut_points, video_duration, len(frames), clip_context, game_hint
             )
             self._log(f"🔍 Pass 1: coarse analysis ({self.config.model}) ...")
+            self._emit("video.coarse.start", f"Pass 1: coarse analysis ({self.config.model})")
             coarse = self._run_coarse_pass(frames, prompt)
             self._log(f"   {len(coarse.segments)} coarse segments")
+            self._emit(
+                "video.coarse.done",
+                f"{len(coarse.segments)} coarse segment(s)",
+                {"segments": len(coarse.segments), "game": coarse.game_detected},
+            )
 
             # PASS 2 — refinement
             self._check_cancel()
@@ -244,9 +267,19 @@ class VideoClipAnalyzer:
             # PASS 3 — snapping + boundary verification
             self._check_cancel()
             self._log("🔧 Pass 3: snapping + boundary verification ...")
+            self._emit(
+                "video.verify.start",
+                f"Pass 3: verifying {len(result.segments)} segment(s)",
+                {"total": len(result.segments)},
+            )
             self._snap_boundaries_to_scene_cuts(result.segments, cut_points)
             self._verify_and_relabel_segments(
                 result.segments, video_path, result.game_detected
+            )
+            self._emit(
+                "video.verify.done",
+                f"Verified {len(result.segments)} segment(s)",
+                {"total": len(result.segments)},
             )
             for i, seg in enumerate(result.segments):
                 seg.segment_index = i
@@ -309,6 +342,17 @@ class VideoClipAnalyzer:
         """Raise AnalysisCancelled if the worker has signalled abort."""
         if self.config.should_cancel():
             raise AnalysisCancelled("analysis cancelled by sibling stage failure")
+
+    def _emit(self, event_type: str, message: str,
+              data: Optional[dict] = None) -> None:
+        """Forward a progress event to the worker, swallowing errors."""
+        cb = self.config.progress_callback
+        if cb is None:
+            return
+        try:
+            cb(event_type, message, data)
+        except Exception:  # noqa: BLE001 — telemetry never crashes analysis
+            pass
 
     def _track_temp(self, path: str) -> str:
         self._temp_dirs.append(path)
@@ -576,17 +620,34 @@ Return ONLY valid JSON matching the provided schema."""
             return coarse
 
         self._log(f"🔬 Pass 2: refining {len(long_segs)} long segments ...")
+        self._emit(
+            "video.refine.start",
+            f"Pass 2: refining {len(long_segs)} long segment(s)",
+            {"total": len(long_segs)},
+        )
         all_refined: list[Segment] = []
+        refined_count = 0
         for seg in coarse.segments:
             self._check_cancel()
             if seg.duration_seconds <= cfg.refinement_threshold_seconds:
                 all_refined.append(seg)
                 continue
+            refined_count += 1
+            self._emit(
+                "video.refine.progress",
+                f"Refining {refined_count}/{len(long_segs)}",
+                {"current": refined_count, "total": len(long_segs)},
+            )
             sub_segs = self._refine_segment(
                 seg, video_path, coarse.game_detected, clip_context
             )
             all_refined.extend(sub_segs)
             time.sleep(1)
+        self._emit(
+            "video.refine.done",
+            f"Refined into {len(all_refined)} segment(s)",
+            {"total": len(all_refined)},
+        )
 
         for i, s in enumerate(all_refined):
             s.segment_index = i
@@ -712,8 +773,14 @@ Return ONLY valid JSON matching the provided schema."""
     def _verify_and_relabel_segments(self, segments, video_path, game_detected) -> int:
         cfg = self.config
         fixes = 0
-        for seg in segments:
+        total = len(segments)
+        for i, seg in enumerate(segments, start=1):
             self._check_cancel()
+            self._emit(
+                "video.verify.progress",
+                f"Verifying {i}/{total}",
+                {"current": i, "total": total},
+            )
             check_times = [
                 seg.start_seconds,
                 min(seg.start_seconds + 0.2, seg.end_seconds),

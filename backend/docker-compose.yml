@@ -5,6 +5,18 @@ services:
     container_name: reelize-backend
     ports:
       - "8000:8000"
+    # Stability knobs for arm64 hosts (Windows-on-ARM / Apple Silicon):
+    # - single-threaded BLAS/OpenMP avoids a SIGTRAP (exit 133) we were hitting
+    #   mid-whisper on this host, probably an over-aggressive threading path
+    #   in the aarch64 torch wheel.
+    # - PYTHONFAULTHANDLER makes any future native crash print a traceback
+    #   before the container dies, so we can actually diagnose it.
+    environment:
+      - OMP_NUM_THREADS=2
+      - MKL_NUM_THREADS=2
+      - OPENBLAS_NUM_THREADS=2
+      - TOKENIZERS_PARALLELISM=false
+      - PYTHONFAULTHANDLER=1
     env_file:
       - .env
     volumes:

@@ -22,6 +22,8 @@ class Storage(Protocol):
     def put_file(self, local: Path, key: str) -> str: ...
     def put_bytes(self, data: bytes, key: str, content_type: str | None = None) -> str: ...
     def signed_url(self, key: str, ttl_seconds: int = 3600) -> str: ...
+    def signed_upload_url(self, key: str, ttl_seconds: int = 3600) -> dict: ...
+    def download(self, key: str) -> bytes: ...
     def delete(self, key: str) -> None: ...
 
 
@@ -59,6 +61,26 @@ class SupabaseStorage:
             or resp.get("signed_url")
             or ""
         )
+
+    def signed_upload_url(self, key: str, ttl_seconds: int = 3600) -> dict:
+        """One-shot upload URL the browser/app can PUT bytes to directly.
+
+        Supabase's create_signed_upload_url doesn't take a TTL (it's fixed at
+        ~2h on the server), but we keep the arg to match the protocol. Returns
+        `{url, token, path, bucket}` — the frontend uses the JS SDK's
+        uploadToSignedUrl(path, token, file) which handles RN/web quirks.
+        """
+        r = self._client.storage.from_(self._bucket).create_signed_upload_url(key)
+        url = r.get("signed_url") or r.get("signedUrl") or ""
+        return {
+            "url": url,
+            "token": r.get("token", ""),
+            "path": r.get("path", key),
+            "bucket": self._bucket,
+        }
+
+    def download(self, key: str) -> bytes:
+        return self._client.storage.from_(self._bucket).download(key)
 
     def delete(self, key: str) -> None:
         self._client.storage.from_(self._bucket).remove([key])
@@ -102,6 +124,21 @@ class R2Storage:
             Params={"Bucket": self._bucket, "Key": key},
             ExpiresIn=ttl_seconds,
         )
+
+    def signed_upload_url(self, key: str, ttl_seconds: int = 3600) -> dict:
+        """Pre-signed PUT URL — client uploads raw bytes with Content-Type."""
+        url = self._client.generate_presigned_url(
+            "put_object",
+            Params={"Bucket": self._bucket, "Key": key},
+            ExpiresIn=ttl_seconds,
+        )
+        # R2/S3 has no Supabase-style "token" — the signature is embedded in
+        # the URL. We keep the same shape so the caller can be backend-agnostic.
+        return {"url": url, "token": "", "path": key, "bucket": self._bucket}
+
+    def download(self, key: str) -> bytes:
+        resp = self._client.get_object(Bucket=self._bucket, Key=key)
+        return resp["Body"].read()
 
     def delete(self, key: str) -> None:
         self._client.delete_object(Bucket=self._bucket, Key=key)

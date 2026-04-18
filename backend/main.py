@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import shutil
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -36,9 +37,90 @@ from worker import process_job
 app = FastAPI(title="Reelize Backend")
 
 
+@app.on_event("startup")
+def _reconcile_orphaned_jobs() -> None:
+    """Mark any `queued` / `running` jobs as failed at boot.
+
+    If the container restarts (rebuild, OOM, crash) while a worker is
+    processing a job, the DB row is left stuck forever — the Python process
+    that owned it is gone. Because we run exactly one backend instance in
+    this deployment, any non-terminal job at startup must be an orphan from
+    the previous container.
+    """
+    try:
+        sb = get_supabase()
+        stale = (
+            sb.table("jobs")
+            .select("id,status")
+            .in_("status", ["queued", "running"])
+            .execute()
+            .data or []
+        )
+        if not stale:
+            return
+        now = datetime.now(timezone.utc).isoformat()
+        for row in stale:
+            jid = row["id"]
+            sb.table("jobs").update({
+                "status": "failed",
+                "error": "RuntimeError: orphaned by container restart",
+                "updated_at": now,
+            }).eq("id", jid).execute()
+        logging.getLogger(__name__).warning(
+            "reconciled %d orphaned job(s) on startup: %s",
+            len(stale), [r["id"] for r in stale],
+        )
+    except Exception as e:  # noqa: BLE001 — reconciliation must not block startup
+        logging.getLogger(__name__).warning("orphan reconciliation failed: %s", e)
+
+
 @app.get("/health")
 def health() -> dict:
     return {"ok": True}
+
+
+class SignUploadBody(BaseModel):
+    filename: str
+    content_type: Optional[str] = "video/mp4"
+
+
+_UPLOAD_PREFIX = "uploads"
+# Keys expire on the server side (~2h); we'll clean them up from the worker
+# after downloading the bytes, so dangling upload blobs are the exception not
+# the rule.
+
+
+@app.post("/uploads/sign")
+def sign_upload(
+    body: SignUploadBody,
+    user: CurrentUser = Depends(get_current_user),
+) -> dict:
+    """Mint a one-shot direct-upload URL for the frontend.
+
+    The tunnel/proxy between the browser and this host can't carry multi-MB
+    uploads reliably — it times out before the handler fires. Instead, the
+    frontend asks here for a signed URL, uploads the bytes straight to object
+    storage (Supabase/R2), and then hits `/analyze` with the resulting key.
+    """
+    # Scope the key under the user so a stolen signed URL can't be used to
+    # target someone else's bucket space, and so /analyze can cheaply verify
+    # ownership without a DB round-trip.
+    ext = Path(body.filename).suffix.lower() or ".mp4"
+    if ext not in {".mp4", ".mov", ".webm", ".mkv", ".m4v"}:
+        raise HTTPException(400, f"unsupported video extension: {ext}")
+    key = f"{_UPLOAD_PREFIX}/{user.id}/{uuid.uuid4()}{ext}"
+    try:
+        info = get_storage().signed_upload_url(key)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"failed to sign upload: {e}") from e
+    return {
+        "key": key,
+        "upload_url": info["url"],
+        "token": info["token"],
+        "path": info["path"],
+        "bucket": info["bucket"],
+        "content_type": body.content_type or "video/mp4",
+    }
 
 
 @app.post("/analyze")
@@ -47,22 +129,34 @@ async def analyze(
     user: CurrentUser = Depends(get_current_user),
     video: Optional[UploadFile] = File(None),
     url: Optional[str] = Form(None),
+    upload_key: Optional[str] = Form(None),
     clip_context: str = Form(""),
     game_hint: Optional[str] = Form(None),
     clip_id: Optional[str] = Form(None),
 ) -> dict:
     """Kick off an analysis job.
 
+    Source selection (provide exactly one):
+      - `url`        — yt-dlp downloads server-side.
+      - `upload_key` — storage key from a prior `/uploads/sign` upload. Preferred.
+      - `video`      — multipart file (legacy/dev fallback; don't use over tunnels).
+
     Requires a Supabase bearer token. `user_id` is stamped from the JWT.
     If `clip_id` is provided the job is linked back to that clip row so the
     worker can promote its status to `ready` on completion.
     """
-    if not url and not video:
-        raise HTTPException(400, "Provide either `url` or `video`")
-    if url and video:
-        raise HTTPException(400, "Provide only one of `url` or `video`")
+    provided = [p for p in (url, upload_key, video) if p]
+    if len(provided) == 0:
+        raise HTTPException(400, "Provide one of `url`, `upload_key`, or `video`")
+    if len(provided) > 1:
+        raise HTTPException(400, "Provide only one of `url`, `upload_key`, or `video`")
     if not os.environ.get("GEMINI_API_KEY"):
         raise HTTPException(500, "GEMINI_API_KEY not set")
+
+    # Ownership check on the upload_key — cheap and blocks cross-user use of
+    # a leaked signed URL before we spawn a worker.
+    if upload_key and not upload_key.startswith(f"{_UPLOAD_PREFIX}/{user.id}/"):
+        raise HTTPException(403, "upload_key is not owned by this user")
 
     source_type = "url" if url else "upload"
 
@@ -92,6 +186,7 @@ async def analyze(
         source_type=source_type,
         source_url=url,
         upload_path=upload_path,
+        upload_key=upload_key,
         clip_context=clip_context,
         game_hint=game_hint,
         clip_id=clip_id,

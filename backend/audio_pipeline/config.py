@@ -1,7 +1,13 @@
 """All tunable parameters for the pipeline in one place."""
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, Callable, Optional
 import os
+
+# (event_type, message, data) — kept positional so the pipeline doesn't need
+# to know about job_id / stage labels; the worker binds those when it wires
+# the callback.
+ProgressCallback = Callable[[str, str, Optional[dict[str, Any]]], None]
 
 
 @dataclass
@@ -23,7 +29,11 @@ class PipelineConfig:
     analysis_sample_rate: int = 44100 # librosa analysis
 
     # ── Whisper ────────────────────────────────────────────────
-    whisper_model: str = "large-v3"
+    # large-v3-turbo: 809M params vs large-v3's 1550M — near-identical quality
+    # on short-form clips, ~40% the RAM, ~3x faster. Matters because Docker
+    # Desktop on WSL2 caps the container at ~7.5GB and demucs+pyannote+whisper
+    # all live in the same process tree; large-v3 pushed us over the OOM edge.
+    whisper_model: str = "large-v3-turbo"
 
     # ── Diarization ────────────────────────────────────────────
     max_speakers: int = 5
@@ -65,6 +75,12 @@ class PipelineConfig:
     # ── Housekeeping ───────────────────────────────────────────
     # Delete the Shazam chunk dir at the end of the run.
     cleanup_chunks: bool = True
+
+    # ── Progress telemetry ─────────────────────────────────────
+    # The pipeline calls this at each stage boundary so the worker can
+    # forward a job_events row to the frontend. Keeps the UI from sitting on
+    # a spinner for 3+ minutes between audio.start and audio.done.
+    progress_callback: Optional[ProgressCallback] = None
 
     def __post_init__(self) -> None:
         self.output_dir = Path(self.output_dir)

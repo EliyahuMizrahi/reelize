@@ -1,10 +1,28 @@
 import { supabase } from '@/lib/supabase';
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? '';
+const UPLOAD_BUCKET =
+  process.env.EXPO_PUBLIC_SUPABASE_BUCKET ?? 'reelize-artifacts';
 
 async function authHeader(): Promise<Record<string, string>> {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
+  // getSession() is cache-only — it does not refresh. If the access token
+  // has (or is about to) expire we must refresh ourselves, otherwise we ship
+  // a stale JWT and Supabase returns 403 at /auth/v1/user. 60s of slack
+  // avoids a refresh race against token lifetime.
+  let { data } = await supabase.auth.getSession();
+  let session = data.session;
+  const expiresAt = session?.expires_at ?? 0;
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (session && expiresAt - nowSec < 60) {
+    const { data: refreshed, error } = await supabase.auth.refreshSession();
+    if (error) {
+      // Refresh failed (revoked, network, invalid). Fall through with no
+      // auth header — the request will 401 and the UI can route to login.
+      return {};
+    }
+    session = refreshed.session;
+  }
+  const token = session?.access_token;
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
@@ -60,13 +78,75 @@ export interface AnalyzeInput {
   clipContext?: string;
   gameHint?: string;
   clipId?: string;
+  /** Progress 0–1 during the direct-to-storage upload phase, or -1 when
+   *  progress can't be tracked on the current platform. */
+  onUploadProgress?: (pct: number) => void;
+}
+
+interface SignUploadResponse {
+  key: string;
+  upload_url: string;
+  token: string;
+  path: string;
+  bucket: string;
+  content_type: string;
+}
+
+async function signUpload(filename: string, contentType: string): Promise<SignUploadResponse> {
+  return request<SignUploadResponse>('/uploads/sign', {
+    method: 'POST',
+    body: JSON.stringify({ filename, content_type: contentType }),
+  });
+}
+
+/**
+ * Upload a local video straight to Supabase Storage, bypassing the backend
+ * tunnel entirely. Returns the storage key the caller then passes to
+ * `/analyze`. We prefer the JS SDK's `uploadToSignedUrl` because it handles
+ * the RN/web quirks (Blob, FormData, auth headers) in one place.
+ */
+async function uploadVideoDirect(
+  video: { uri: string; name: string; type: string },
+  onProgress?: (pct: number) => void,
+): Promise<string> {
+  const signed = await signUpload(video.name, video.type);
+  onProgress?.(0);
+
+  // React Native file URIs: fetch(uri).blob() works on Expo SDK 49+ / RN 0.72+.
+  // If that fails we fall back to pushing the file-like object through the
+  // JS SDK, which accepts { uri, name, type } on native.
+  let body: Blob | { uri: string; name: string; type: string };
+  try {
+    const r = await fetch(video.uri);
+    body = await r.blob();
+  } catch {
+    body = { uri: video.uri, name: video.name, type: video.type };
+  }
+
+  const { error } = await supabase.storage
+    .from(signed.bucket ?? UPLOAD_BUCKET)
+    .uploadToSignedUrl(signed.path, signed.token, body as any, {
+      contentType: signed.content_type,
+      upsert: true,
+    });
+  if (error) {
+    throw new Error(`Upload to storage failed: ${error.message}`);
+  }
+  // SDK doesn't expose byte-level progress — report completion so callers
+  // using indeterminate spinners can flip to "processing" state.
+  onProgress?.(1);
+  return signed.key;
 }
 
 /**
  * Kick off a Reelize analysis job on the Python backend.
- * Pass either `url` or `video` (upload). `clipId` links the job back to a
- * pre-created clips row — the worker flips that clip's status to `ready`
- * on completion and writes `style_dna`.
+ *
+ * `video` uploads go direct-to-storage first — the tunnel between the app
+ * and the backend can't reliably carry multi-MB bodies (504s). We only hit
+ * `/analyze` once the bytes are in the bucket, handing over a short key.
+ *
+ * `clipId` links the job back to a pre-created clips row — the worker flips
+ * that clip's status to `ready` on completion and writes `style_dna`.
  */
 export async function analyze(input: AnalyzeInput): Promise<AnalyzeResponse> {
   if (!input.url && !input.video) {
@@ -78,11 +158,8 @@ export async function analyze(input: AnalyzeInput): Promise<AnalyzeResponse> {
   if (input.gameHint) form.append('game_hint', input.gameHint);
   if (input.clipId) form.append('clip_id', input.clipId);
   if (input.video) {
-    form.append('video', {
-      uri: input.video.uri,
-      name: input.video.name,
-      type: input.video.type,
-    } as any);
+    const uploadKey = await uploadVideoDirect(input.video, input.onUploadProgress);
+    form.append('upload_key', uploadKey);
   }
   return request<AnalyzeResponse>('/analyze', {
     method: 'POST',

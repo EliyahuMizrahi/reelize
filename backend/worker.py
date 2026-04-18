@@ -132,6 +132,7 @@ async def _run_video_analysis(
     clip_context: str,
     game_hint: Optional[str],
     cancel_event: Optional[threading.Event] = None,
+    progress_callback: Optional[callable] = None,
 ) -> dict:
     """Run the video analyzer in a worker thread.
 
@@ -147,6 +148,7 @@ async def _run_video_analysis(
             raise RuntimeError("GEMINI_API_KEY not set")
         cfg = AnalyzerConfig(
             should_cancel=(cancel_event.is_set if cancel_event else (lambda: False)),
+            progress_callback=progress_callback,
         )
         analyzer = VideoClipAnalyzer(api_key=keys, config=cfg)
         result = analyzer.analyze(
@@ -174,7 +176,8 @@ def _pick_device() -> str:
 
 
 async def _run_audio_pipeline(audio_wav: Path, out_dir: Path,
-                              source_url: Optional[str]) -> dict:
+                              source_url: Optional[str],
+                              progress_callback: Optional[callable] = None) -> dict:
     """Run the audio pipeline on a worker thread.
 
     Pipeline.run is an async method but its body does long-running synchronous
@@ -190,6 +193,7 @@ async def _run_audio_pipeline(audio_wav: Path, out_dir: Path,
         output_dir=out_dir,
         hf_token=os.environ.get("HF_TOKEN"),
         device=device,
+        progress_callback=progress_callback,
     )
     pipe = Pipeline(cfg)
 
@@ -209,6 +213,7 @@ async def process_job(
     clip_context: str,
     game_hint: Optional[str],
     clip_id: Optional[str] = None,
+    upload_key: Optional[str] = None,
 ) -> None:
     """Entry point scheduled by the /analyze endpoint."""
     scratch = JOBS_ROOT / job_id
@@ -233,8 +238,23 @@ async def process_job(
                 data={"source_type": "url", "source_url": source_url},
             )
             _ytdlp_video(source_url, video_path)
+        elif upload_key:
+            # Direct-to-storage uploads: bytes already in the bucket, fetch
+            # them with the service role and delete the scratch copy after.
+            emit(
+                job_id, "input.materializing",
+                stage="input", pct=3,
+                message="Fetching uploaded video from storage",
+                data={"source_type": "upload_key", "key": upload_key},
+            )
+            data = await asyncio.to_thread(storage.download, upload_key)
+            video_path.write_bytes(data)
+            try:
+                storage.delete(upload_key)
+            except Exception as e:  # noqa: BLE001
+                log.warning("failed to delete upload key %s: %s", upload_key, e)
         else:
-            assert upload_path, "upload_path required for source_type=upload"
+            assert upload_path, "upload_path or upload_key required for source_type=upload"
             emit(
                 job_id, "input.materializing",
                 stage="input", pct=3, message="Preparing uploaded video",
@@ -256,10 +276,19 @@ async def process_job(
         audio_out = scratch / "audio"
         cancel_event = threading.Event()
 
+        def _audio_progress(event_type: str, message: str, data: Optional[dict]) -> None:
+            emit(job_id, event_type, stage="audio", message=message, data=data)
+
+        def _video_progress(event_type: str, message: str, data: Optional[dict]) -> None:
+            emit(job_id, event_type, stage="video", message=message, data=data)
+
         async def _audio_with_events() -> dict:
             emit(job_id, "audio.start", stage="audio", message="Audio pipeline started")
             try:
-                result = await _run_audio_pipeline(audio_wav, audio_out, source_url)
+                result = await _run_audio_pipeline(
+                    audio_wav, audio_out, source_url,
+                    progress_callback=_audio_progress,
+                )
                 emit(
                     job_id, "audio.done",
                     stage="audio", message="Audio analysis complete",
@@ -283,6 +312,7 @@ async def process_job(
             try:
                 result = await _run_video_analysis(
                     video_path, clip_context, game_hint, cancel_event=cancel_event,
+                    progress_callback=_video_progress,
                 )
                 emit(
                     job_id, "video.done",
