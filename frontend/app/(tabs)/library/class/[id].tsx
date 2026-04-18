@@ -179,9 +179,7 @@ export default function ClassDetailScreen() {
           </BodySm>
         ) : null}
         <MonoSm muted style={{ marginTop: 10 }}>
-          {`${topicList.length} topics \u00b7 ${totalClips} clips${
-            cls.streak_days > 0 ? ` \u00b7 ${cls.streak_days}d streak` : ''
-          }`}
+          {`${topicList.length} topics \u00b7 ${totalClips} clips`}
         </MonoSm>
       </Animated.View>
 

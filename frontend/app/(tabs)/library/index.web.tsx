@@ -1,22 +1,24 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   ScrollView,
   Pressable,
+  Modal,
   useWindowDimensions,
   StyleSheet,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated from 'react-native-reanimated';
 
 import { Surface, Divider } from '@/components/ui/Surface';
 import { Button } from '@/components/ui/Button';
-import { TextField } from '@/components/ui/TextField';
 import { IconButton } from '@/components/ui/IconButton';
 import { Chip } from '@/components/ui/Chip';
+import { TextField } from '@/components/ui/TextField';
 import { Display2, Headline, Title, TitleSm, Body, BodySm, Mono, MonoSm, Overline, Text } from '@/components/ui/Text';
+import { useActiveCourse } from '@/components/navigation/WebAppChrome';
 import { Noctis } from '@/components/brand/Noctis';
 import { Shards } from '@/components/brand/Shards';
 import { StyleDNA } from '@/components/brand/StyleDNA';
@@ -29,6 +31,7 @@ import {
   useClipsForTopic,
   useProfileStats,
 } from '@/data/hooks';
+import { createClass } from '@/data/mutations';
 import type { ClassWithCounts, TopicWithClipCount } from '@/data/queries';
 import type { Row } from '@/types/supabase';
 
@@ -50,21 +53,19 @@ function formatRelative(iso: string | null | undefined): string {
 
 type Sort = 'recent' | 'alpha' | 'most-clips';
 
-// ───────────────────────── Top bar ─────────────────────────
-function TopBar({
+// ───────────────────────── Page header ─────────────────────────
+function PageHeader({
   sort,
   setSort,
-  classFilter,
-  setClassFilter,
-  classes,
   counts,
+  courseCount,
+  onNewCourse,
 }: {
   sort: Sort;
   setSort: (s: Sort) => void;
-  classFilter: string | null;
-  setClassFilter: (c: string | null) => void;
-  classes: ClassWithCounts[];
   counts: { topic: number; clip: number };
+  courseCount: number;
+  onNewCourse: () => void;
 }) {
   const { colors } = useAppTheme();
   return (
@@ -77,44 +78,186 @@ function TopBar({
         gap: spacing.lg,
       }}
     >
-      <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
+      <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: spacing.lg }}>
         <View>
-          <Mono muted>Shelf</Mono>
-          <Headline style={{ marginTop: spacing.xs }}>Your shelf.</Headline>
+          <Overline muted>LIBRARY</Overline>
+          <Headline style={{ marginTop: spacing.xs }}>Your courses.</Headline>
           <BodySm italic family="serif" muted style={{ marginTop: 2 }}>
-            {classes.length} classes. {counts.topic} topics. {counts.clip} clips.
+            {courseCount} courses. {counts.clip} lessons.
           </BodySm>
         </View>
-        <View style={{ flexDirection: 'row', gap: spacing.md, alignItems: 'center' }}>
-          <View style={{ width: 240 }}>
-            <TextField
-              placeholder="Search topics & clips"
-              variant="boxed"
-              leading={<Feather name="search" size={14} color={colors.mutedText as string} />}
+        <Pressable
+          onPress={onNewCourse}
+          style={({ hovered, pressed }: any) => ({
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 6,
+            height: 36,
+            paddingHorizontal: 14,
+            borderRadius: radii.sm,
+            backgroundColor: pressed || hovered ? (colors.primary as string) : (colors.primary as string) + 'DD',
+          })}
+        >
+          <Feather name="plus" size={14} color={colors.onPrimary as string} />
+          <Text variant="bodySm" weight="semibold" color={colors.onPrimary as string}>
+            New course
+          </Text>
+        </Pressable>
+      </View>
+      {courseCount > 0 ? (
+        <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center', flexWrap: 'wrap' }}>
+          <Overline muted style={{ marginRight: spacing.sm }}>SORT</Overline>
+          <Chip label="Recent" variant="outline" selected={sort === 'recent'} onPress={() => setSort('recent')} size="sm" />
+          <Chip label="A–Z" variant="outline" selected={sort === 'alpha'} onPress={() => setSort('alpha')} size="sm" />
+          <Chip label="Most lessons" variant="outline" selected={sort === 'most-clips'} onPress={() => setSort('most-clips')} size="sm" />
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+// ───────────────────────── New course modal ─────────────────────────
+function NewCourseModal({
+  open,
+  onClose,
+  onCreated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onCreated: (courseId: string) => void;
+}) {
+  const { colors } = useAppTheme();
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setName('');
+      setErr(null);
+      setBusy(false);
+    }
+  }, [open]);
+
+  const submit = async () => {
+    const clean = name.trim();
+    if (clean.length < 2 || busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const created = await createClass({ name: clean });
+      onCreated(created.id);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal visible={open} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable
+        onPress={onClose}
+        style={{
+          flex: 1,
+          backgroundColor: 'rgba(2,6,15,0.72)',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: spacing.xl,
+        }}
+      >
+        <Pressable
+          onPress={() => {}}
+          style={{
+            width: '100%',
+            maxWidth: 440,
+            padding: spacing['2xl'],
+            borderRadius: radii['2xl'],
+            backgroundColor: colors.card as string,
+            borderWidth: 1,
+            borderColor: colors.border as string,
+            gap: spacing.md,
+          }}
+        >
+          <Overline muted>NEW COURSE</Overline>
+          <Title>Name your course.</Title>
+          <BodySm muted>
+            Courses are where your lessons live. Pick a subject — you can add topics and lessons next.
+          </BodySm>
+          <TextField
+            variant="boxed"
+            placeholder="e.g. Biology, Krebs Cycle, Statistics"
+            value={name}
+            onChangeText={setName}
+            autoFocus
+            onSubmitEditing={submit}
+          />
+          {err ? <MonoSm color={palette.alert}>{err}</MonoSm> : null}
+          <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, justifyContent: 'flex-end' }}>
+            <Button variant="tertiary" size="sm" title="Cancel" onPress={onClose} haptic={false} />
+            <Button
+              variant="primary"
+              size="sm"
+              title={busy ? 'Creating…' : 'Create course'}
+              disabled={busy || name.trim().length < 2}
+              onPress={submit}
+              haptic={false}
             />
           </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+// ───────────────────────── Empty state ─────────────────────────
+function LibraryEmptyState({ onNewCourse }: { onNewCourse: () => void }) {
+  const { colors } = useAppTheme();
+  return (
+    <View style={{ alignItems: 'center', paddingVertical: spacing['5xl'] }}>
+      <Surface
+        padded={spacing['3xl']}
+        radius="xl"
+        bordered
+        style={{ maxWidth: 560, alignItems: 'flex-start', gap: spacing.md }}
+      >
+        <View
+          style={{
+            width: 48,
+            height: 48,
+            borderRadius: 24,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: colors.elevated as string,
+            borderWidth: 1,
+            borderColor: colors.border as string,
+          }}
+        >
+          <Feather name="book-open" size={20} color={colors.primary as string} />
         </View>
-      </View>
-      <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center', flexWrap: 'wrap' }}>
-        <Overline muted style={{ marginRight: spacing.sm }}>SORT</Overline>
-        <Chip label="Recent" variant="outline" selected={sort === 'recent'} onPress={() => setSort('recent')} size="sm" />
-        <Chip label="A–Z" variant="outline" selected={sort === 'alpha'} onPress={() => setSort('alpha')} size="sm" />
-        <Chip label="Most clips" variant="outline" selected={sort === 'most-clips'} onPress={() => setSort('most-clips')} size="sm" />
-        <View style={{ width: 1, height: 20, backgroundColor: colors.border as string, marginHorizontal: spacing.sm }} />
-        <Overline muted style={{ marginRight: spacing.sm }}>CLASS</Overline>
-        <Chip label="All" variant="outline" selected={classFilter === null} onPress={() => setClassFilter(null)} size="sm" />
-        {classes.map((c) => (
-          <Chip
-            key={c.id}
-            label={c.name}
-            variant="class"
-            classColor={c.color_hex}
-            selected={classFilter === c.id}
-            onPress={() => setClassFilter(classFilter === c.id ? null : c.id)}
-            size="sm"
-          />
-        ))}
-      </View>
+        <Overline muted>YOUR LIBRARY IS EMPTY</Overline>
+        <Title>Start your first course.</Title>
+        <BodySm muted>
+          Courses organize your lessons by subject. Create one to start — then add lessons to it by analyzing reels.
+        </BodySm>
+        <Pressable
+          onPress={onNewCourse}
+          style={({ hovered, pressed }: any) => ({
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 6,
+            height: 40,
+            paddingHorizontal: 16,
+            borderRadius: radii.sm,
+            marginTop: spacing.sm,
+            backgroundColor: pressed || hovered ? (colors.primary as string) : (colors.primary as string) + 'DD',
+          })}
+        >
+          <Feather name="plus" size={14} color={colors.onPrimary as string} />
+          <Text variant="bodySm" weight="semibold" color={colors.onPrimary as string}>
+            Create your first course
+          </Text>
+        </Pressable>
+      </Surface>
     </View>
   );
 }
@@ -178,7 +321,7 @@ function ClassCardLarge({
             </View>
           </View>
           <View style={{ position: 'absolute', left: spacing.xl, right: spacing.xl, bottom: spacing.xl }}>
-            <Overline color={cls.color_hex}>{cls.streak_days > 0 ? `${cls.streak_days}-day streak` : 'resting'}</Overline>
+            <Overline color={cls.color_hex}>{`${cls.clip_count} ${cls.clip_count === 1 ? 'lesson' : 'lessons'}`}</Overline>
             <Title color={palette.mist} style={{ marginTop: spacing.xs }} numberOfLines={1}>
               {cls.name}
             </Title>
@@ -189,7 +332,7 @@ function ClassCardLarge({
             ) : null}
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.md }}>
               <MonoSm color={palette.fog} style={{ opacity: 0.8 }}>{cls.topic_count} topics</MonoSm>
-              <MonoSm color={palette.fog} style={{ opacity: 0.6 }}>{cls.clip_count} clips</MonoSm>
+              <MonoSm color={palette.fog} style={{ opacity: 0.6 }}>{cls.clip_count} lessons</MonoSm>
             </View>
           </View>
         </View>
@@ -225,8 +368,8 @@ function ClassDetailView({
       <View style={{ width: 320 }}>
         <Surface padded={spacing.xl} radius="xl" bordered style={{ gap: spacing.md }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Overline color={cls.color_hex}>CLASS</Overline>
-            <IconButton variant="ghost" size={32} onPress={onClose} accessibilityLabel="Back to shelf">
+            <Overline color={cls.color_hex}>COURSE</Overline>
+            <IconButton variant="ghost" size={32} onPress={onClose} accessibilityLabel="Back to courses">
               <Feather name="arrow-left" size={14} color={colors.text as string} />
             </IconButton>
           </View>
@@ -245,11 +388,7 @@ function ClassDetailView({
             </View>
             <View>
               <Mono>{cls.clip_count}</Mono>
-              <MonoSm muted>clips</MonoSm>
-            </View>
-            <View>
-              <Mono color={cls.streak_days > 0 ? palette.gold : palette.teal}>{cls.streak_days}d</Mono>
-              <MonoSm muted>streak</MonoSm>
+              <MonoSm muted>lessons</MonoSm>
             </View>
           </View>
         </Surface>
@@ -315,7 +454,7 @@ function ClassDetailView({
               </View>
               <View style={{ alignItems: 'flex-end' }}>
                 <Mono color={palette.gold}>{Math.round(topic.progress * 100)}%</Mono>
-                <MonoSm muted>{topic.clip_count} clips · {formatRelative(topic.last_studied_at)}</MonoSm>
+                <MonoSm muted>{topic.clip_count} lessons · {formatRelative(topic.last_studied_at)}</MonoSm>
               </View>
             </View>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.lg }}>
@@ -395,19 +534,27 @@ function ClipGridCard({ clip, classColor, className, index }: { clip: Row<'clips
 
 // ───────────────────────── Library (web) ─────────────────────────
 export default function LibraryWebScreen() {
+  const router = useRouter();
   const { colors } = useAppTheme();
   useWindowDimensions();
   const [sort, setSort] = useState<Sort>('recent');
-  const [classFilter, setClassFilter] = useState<string | null>(null);
-  const [activeClassId, setActiveClassId] = useState<string | null>(null);
+  const [newCourseOpen, setNewCourseOpen] = useState(false);
+  const { activeCourseId, setActiveCourseId } = useActiveCourse();
+  const params = useLocalSearchParams<{ new?: string }>();
 
   const { data: classes } = useClasses();
   const { data: stats } = useProfileStats();
   const classList = classes ?? [];
 
+  useEffect(() => {
+    if (params.new === '1') {
+      setNewCourseOpen(true);
+      router.replace('/(tabs)/library' as any);
+    }
+  }, [params.new, router]);
+
   const sorted = useMemo(() => {
-    let list = [...classList];
-    if (classFilter) list = list.filter((c) => c.id === classFilter);
+    const list = [...classList];
     if (sort === 'recent') {
       list.sort((a, b) => {
         const at = a.last_active_at ? new Date(a.last_active_at).getTime() : 0;
@@ -420,26 +567,27 @@ export default function LibraryWebScreen() {
       list.sort((a, b) => b.clip_count - a.clip_count);
     }
     return list;
-  }, [sort, classFilter, classList]);
+  }, [sort, classList]);
 
-  const activeClass = activeClassId ? classList.find((c) => c.id === activeClassId) : null;
+  const activeClass = activeCourseId ? classList.find((c) => c.id === activeCourseId) : null;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background as string }}>
-      <TopBar
+      <PageHeader
         sort={sort}
         setSort={setSort}
-        classFilter={classFilter}
-        setClassFilter={setClassFilter}
-        classes={classList}
+        courseCount={classList.length}
         counts={{ topic: stats?.topicCount ?? 0, clip: stats?.clipCount ?? 0 }}
+        onNewCourse={() => setNewCourseOpen(true)}
       />
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ padding: spacing['2xl'], paddingBottom: spacing['5xl'] }}
       >
         {activeClass ? (
-          <ClassDetailView cls={activeClass} onClose={() => setActiveClassId(null)} />
+          <ClassDetailView cls={activeClass} onClose={() => setActiveCourseId(null)} />
+        ) : classList.length === 0 ? (
+          <LibraryEmptyState onNewCourse={() => setNewCourseOpen(true)} />
         ) : (
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xl }}>
             {sorted.map((cls, i) => (
@@ -447,12 +595,20 @@ export default function LibraryWebScreen() {
                 key={cls.id}
                 cls={cls}
                 index={i}
-                onPress={() => setActiveClassId(cls.id)}
+                onPress={() => setActiveCourseId(cls.id)}
               />
             ))}
           </View>
         )}
       </ScrollView>
+      <NewCourseModal
+        open={newCourseOpen}
+        onClose={() => setNewCourseOpen(false)}
+        onCreated={(id) => {
+          setNewCourseOpen(false);
+          setActiveCourseId(id);
+        }}
+      />
     </View>
   );
 }

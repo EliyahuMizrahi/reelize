@@ -19,7 +19,7 @@ import { Noctis } from '@/components/brand/Noctis';
 import { ENTER } from '@/components/ui/motion';
 import { palette, spacing, radii } from '@/constants/tokens';
 
-import { OnboardingProgress } from './_progress';
+import OnboardingProgress from '@/components/onboarding/Progress';
 
 function StoryboardGlyph({
   kind,

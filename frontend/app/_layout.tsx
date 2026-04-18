@@ -1,14 +1,26 @@
 import { AuthProvider } from "@/contexts/AuthContext";
 import { AppThemeProvider, useAppTheme } from "@/contexts/ThemeContext";
-import { Stack } from "expo-router";
+import { Stack, usePathname } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect } from "react";
-import { View } from "react-native";
+import { Platform, View } from "react-native";
 import "react-native-gesture-handler";
 import { useAppFonts } from "@/hooks/useAppFonts";
 import { palette } from "@/constants/tokens";
 import { Noctis } from "@/components/brand/Noctis";
+import { WebAppChrome } from "@/components/navigation/WebAppChrome";
+
+const WEB_CHROME_PREFIXES = ["/feed", "/library", "/create", "/profile"];
+
+function WebChromeGate({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const show =
+    Platform.OS === "web" &&
+    WEB_CHROME_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
+  if (!show) return <>{children}</>;
+  return <WebAppChrome>{children}</WebAppChrome>;
+}
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -37,20 +49,22 @@ function RootShell() {
 
   return (
     <AuthProvider>
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: colors.background as string },
-          // Fade at the root stack level so splash → (auth) is a seamless
-          // crossfade on every platform. Inner stacks (e.g. sign-in ↔ sign-up)
-          // keep their own defaults.
-          animation: "fade",
-        }}
-      >
-        <Stack.Screen name="index" />
-        <Stack.Screen name="(auth)" />
-        <Stack.Screen name="(tabs)" />
-      </Stack>
+      <WebChromeGate>
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: { backgroundColor: colors.background as string },
+            // Fade at the root stack level so splash → (auth) is a seamless
+            // crossfade on every platform. Inner stacks (e.g. sign-in ↔ sign-up)
+            // keep their own defaults.
+            animation: "fade",
+          }}
+        >
+          <Stack.Screen name="index" />
+          <Stack.Screen name="(auth)" />
+          <Stack.Screen name="(tabs)" />
+        </Stack>
+      </WebChromeGate>
       <StatusBar
         backgroundColor={colors.background as string}
         style={isDark ? "light" : "dark"}

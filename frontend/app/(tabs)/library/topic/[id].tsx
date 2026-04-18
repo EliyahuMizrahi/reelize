@@ -88,7 +88,6 @@ export default function TopicDetailScreen() {
 
   const classColor = cls?.color_hex ?? palette.sage;
   const className = cls?.name ?? 'Class';
-  const classStreak = cls?.streak_days ?? 0;
 
   // Mention counts
   const mentionByCreator = new Map<string, number>();
@@ -170,8 +169,6 @@ export default function TopicDetailScreen() {
         <Animated.View entering={ENTER.fadeUp(80)} style={{ marginBottom: spacing.lg }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm }}>
             <Chip label={className} variant="class" classColor={classColor} size="sm" />
-            <View style={{ width: 8 }} />
-            <MonoSm muted>{classStreak > 0 ? `${classStreak}d streak` : 'idle'}</MonoSm>
           </View>
           <Headline>{topic.name}</Headline>
           {topic.description ? (

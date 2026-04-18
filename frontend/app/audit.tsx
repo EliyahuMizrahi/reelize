@@ -66,7 +66,7 @@ function buildSections(sampleClassId: string, sampleTopicId: string, sampleClipI
       caption: 'Profile and settings. The quiet corners.',
       routes: [
         { title: 'Profile', path: '/(tabs)/profile' },
-        { title: 'Settings', path: '/settings' },
+        { title: 'Settings', path: '/profile/settings' },
       ],
     },
     {
@@ -78,7 +78,7 @@ function buildSections(sampleClassId: string, sampleTopicId: string, sampleClipI
         { title: 'Create · lab bench (web)', path: '/(tabs)/create' },
         { title: 'Library (web)', path: '/(tabs)/library' },
         { title: 'Player (web)', path: `/player/${sampleClipId}` },
-        { title: 'Settings (web)', path: '/settings' },
+        { title: 'Settings (web)', path: '/profile/settings' },
       ],
     },
   ];

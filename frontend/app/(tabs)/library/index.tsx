@@ -40,12 +40,11 @@ import { useClasses } from '@/data/hooks';
 import { createClass } from '@/data/mutations';
 import type { ClassWithCounts } from '@/data/queries';
 
-type FilterKey = 'all' | 'recent' | 'active';
+type FilterKey = 'all' | 'recent';
 
 const FILTERS: { key: FilterKey; label: string }[] = [
   { key: 'all', label: 'All' },
   { key: 'recent', label: 'Recent' },
-  { key: 'active', label: 'Active' },
 ];
 
 const { width: SCREEN_W } = Dimensions.get('window');
@@ -70,8 +69,6 @@ export default function LibraryScreen() {
         const bt = b.last_active_at ? new Date(b.last_active_at).getTime() : 0;
         return bt - at;
       });
-    } else if (filter === 'active') {
-      return base.filter((c) => c.streak_days > 0);
     }
     return base;
   }, [filter, rows]);
@@ -525,7 +522,7 @@ function ClassCard({ cls, index, width, height, onPress, dark }: ClassCardProps)
             }}
           >
             <Overline color={cls.color_hex} style={{ opacity: 0.9 }}>
-              {cls.streak_days > 0 ? `${cls.streak_days}-day streak` : 'resting'}
+              {`${cls.clip_count} ${cls.clip_count === 1 ? 'clip' : 'clips'}`}
             </Overline>
             <Title color={palette.mist} style={{ marginTop: 4 }} numberOfLines={1}>
               {cls.name}

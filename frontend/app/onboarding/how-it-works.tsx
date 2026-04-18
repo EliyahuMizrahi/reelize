@@ -19,7 +19,7 @@ import { Noctis } from '@/components/brand/Noctis';
 import { ENTER } from '@/components/ui/motion';
 import { palette, spacing, radii, motion } from '@/constants/tokens';
 
-import { OnboardingProgress } from './_progress';
+import OnboardingProgress from '@/components/onboarding/Progress';
 
 type Step = {
   number: string;

@@ -18,7 +18,7 @@ import { ENTER } from '@/components/ui/motion';
 import { useAuth } from '@/contexts/AuthContext';
 import { palette, spacing, radii } from '@/constants/tokens';
 
-import { OnboardingProgress } from './_progress';
+import OnboardingProgress from '@/components/onboarding/Progress';
 
 type ClassKey = 'biology' | 'finance' | 'history';
 

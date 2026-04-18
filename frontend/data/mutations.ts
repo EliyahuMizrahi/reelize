@@ -45,7 +45,6 @@ export async function updateClass(
     name?: string;
     colorHex?: string;
     description?: string;
-    streakDays?: number;
     lastActiveAt?: string;
   },
 ): Promise<Row<'classes'>> {
@@ -53,7 +52,6 @@ export async function updateClass(
   if (patch.name !== undefined) update.name = patch.name;
   if (patch.colorHex !== undefined) update.color_hex = patch.colorHex;
   if (patch.description !== undefined) update.description = patch.description;
-  if (patch.streakDays !== undefined) update.streak_days = patch.streakDays;
   if (patch.lastActiveAt !== undefined) update.last_active_at = patch.lastActiveAt;
   const { data, error } = await supabase
     .from('classes')
@@ -442,7 +440,6 @@ export async function seedDemoShelf(): Promise<void> {
         name: cls.name,
         color_hex: cls.colorHex,
         description: cls.description,
-        streak_days: Math.floor(Math.random() * 4),
         last_active_at: now.toISOString(),
       } satisfies Insert<'classes'>)
       .select()

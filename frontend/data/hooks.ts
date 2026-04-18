@@ -12,11 +12,9 @@ import {
   fetchClipsForTopic,
   fetchFeed,
   fetchProfileStats,
-  fetchStreakGrid,
   fetchTopic,
   fetchTopicsForClass,
   type ClassWithCounts,
-  type StreakDay,
   type TopicWithClipCount,
 } from '@/data/queries';
 import { supabase } from '@/lib/supabase';
@@ -220,7 +218,6 @@ export function useProfileStats(): AsyncResult<{
   clipCount: number;
   classCount: number;
   topicCount: number;
-  streakDays: number;
 }> {
   const { user } = useAuth();
   const userId = user?.id ?? null;
@@ -228,7 +225,6 @@ export function useProfileStats(): AsyncResult<{
     clipCount: number;
     classCount: number;
     topicCount: number;
-    streakDays: number;
   }>(
     () => {
       if (!userId)
@@ -236,25 +232,10 @@ export function useProfileStats(): AsyncResult<{
           clipCount: 0,
           classCount: 0,
           topicCount: 0,
-          streakDays: 0,
         });
       return fetchProfileStats(userId);
     },
     [userId],
-  );
-  if (!userId) return emptyResult();
-  return result;
-}
-
-export function useStreakGrid(weeks = 16): AsyncResult<StreakDay[]> {
-  const { user } = useAuth();
-  const userId = user?.id ?? null;
-  const result = useAsync<StreakDay[]>(
-    () => {
-      if (!userId) return Promise.resolve([]);
-      return fetchStreakGrid(userId, weeks);
-    },
-    [userId, weeks],
   );
   if (!userId) return emptyResult();
   return result;

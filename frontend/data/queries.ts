@@ -13,11 +13,6 @@ export type TopicWithClipCount = Row<'topics'> & {
   clip_count: number;
 };
 
-export type StreakDay = {
-  date: string; // YYYY-MM-DD
-  intensity: 0 | 1 | 2 | 3 | 4;
-};
-
 // ------- Classes -------
 
 export async function fetchClasses(
@@ -160,9 +155,8 @@ export async function fetchProfileStats(userId: string): Promise<{
   clipCount: number;
   classCount: number;
   topicCount: number;
-  streakDays: number;
 }> {
-  const [clipRes, classRes, topicRes, profileRes] = await Promise.all([
+  const [clipRes, classRes, topicRes] = await Promise.all([
     supabase
       .from('clips')
       .select('*', { count: 'exact', head: true })
@@ -175,68 +169,15 @@ export async function fetchProfileStats(userId: string): Promise<{
       .from('topics')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', userId),
-    supabase
-      .from('profiles')
-      .select('streak_days')
-      .eq('id', userId)
-      .maybeSingle(),
   ]);
 
   if (clipRes.error) throw clipRes.error;
   if (classRes.error) throw classRes.error;
   if (topicRes.error) throw topicRes.error;
-  if (profileRes.error) throw profileRes.error;
 
   return {
     clipCount: clipRes.count ?? 0,
     classCount: classRes.count ?? 0,
     topicCount: topicRes.count ?? 0,
-    streakDays: profileRes.data?.streak_days ?? 0,
   };
-}
-
-// ------- Streak grid -------
-
-/**
- * Build a weeks × 7 streak grid (oldest → newest) by bucketing
- * `activity.occurred_at` into local-UTC day keys. Intensity =
- * clamp(count, 0, 4).
- */
-export async function fetchStreakGrid(
-  userId: string,
-  weeks = 16,
-): Promise<StreakDay[]> {
-  const totalDays = weeks * 7;
-  const now = new Date();
-  // Normalize to UTC midnight of today.
-  const today = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
-  );
-  const earliest = new Date(today);
-  earliest.setUTCDate(earliest.getUTCDate() - (totalDays - 1));
-
-  const { data, error } = await supabase
-    .from('activity')
-    .select('occurred_at')
-    .eq('user_id', userId)
-    .gte('occurred_at', earliest.toISOString());
-  if (error) throw error;
-
-  const counts = new Map<string, number>();
-  (data ?? []).forEach((row) => {
-    const d = new Date(row.occurred_at);
-    const key = d.toISOString().slice(0, 10);
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  });
-
-  const out: StreakDay[] = [];
-  for (let i = totalDays - 1; i >= 0; i--) {
-    const d = new Date(today);
-    d.setUTCDate(d.getUTCDate() - i);
-    const key = d.toISOString().slice(0, 10);
-    const raw = counts.get(key) ?? 0;
-    const intensity = Math.max(0, Math.min(4, raw)) as StreakDay['intensity'];
-    out.push({ date: key, intensity });
-  }
-  return out;
 }
