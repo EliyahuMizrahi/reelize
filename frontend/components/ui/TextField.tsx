@@ -2,10 +2,12 @@ import React, { useState } from 'react';
 import {
   TextInput,
   TextInputProps,
+  TextStyle,
   View,
   ViewStyle,
   StyleProp,
   Pressable,
+  Platform,
 } from 'react-native';
 import { useAppTheme } from '@/contexts/ThemeContext';
 import { Text, Overline } from '@/components/ui/Text';
@@ -19,6 +21,7 @@ export interface TextFieldProps extends TextInputProps {
   leading?: React.ReactNode;
   trailing?: React.ReactNode;
   containerStyle?: StyleProp<ViewStyle>;
+  labelStyle?: StyleProp<TextStyle>;
   variant?: 'boxed' | 'underline' | 'editorial';
   font?: 'sans' | 'serif' | 'mono';
 }
@@ -30,6 +33,7 @@ export function TextField({
   leading,
   trailing,
   containerStyle,
+  labelStyle,
   style,
   variant = 'boxed',
   font = 'sans',
@@ -51,7 +55,7 @@ export function TextField({
     ? (colors.primary as string)
     : (colors.border as string);
 
-  const baseInput = {
+  const baseInput: any = {
     flex: 1,
     paddingVertical: variant === 'editorial' ? 10 : 14,
     paddingHorizontal: variant === 'underline' ? 0 : leading ? 4 : 0,
@@ -59,12 +63,15 @@ export function TextField({
     fontFamily,
     fontSize: variant === 'editorial' ? 22 : 15,
     letterSpacing: variant === 'editorial' ? -0.3 : -0.05,
+    ...(Platform.OS === 'web'
+      ? { outlineStyle: 'none', outlineWidth: 0, outlineColor: 'transparent' }
+      : {}),
   };
 
   return (
     <View style={[{ width: '100%' }, containerStyle]}>
       {label ? (
-        <Overline muted style={{ marginBottom: 8 }}>
+        <Overline muted style={[{ marginBottom: 8 }, labelStyle]}>
           {label}
         </Overline>
       ) : null}
@@ -78,11 +85,10 @@ export function TextField({
               ? 'transparent'
               : (colors.inputBackground as string),
           borderRadius: variant === 'underline' || variant === 'editorial' ? 0 : radii.md,
-          borderBottomWidth: variant === 'underline' || variant === 'editorial' ? 1 : 0,
-          borderWidth:
-            variant === 'underline' || variant === 'editorial' ? 0 : 1,
+          ...(variant === 'underline' || variant === 'editorial'
+            ? { borderBottomWidth: 1 }
+            : { borderWidth: 1 }),
           borderColor,
-          borderBottomColor: borderColor,
           paddingHorizontal: variant === 'underline' || variant === 'editorial' ? 0 : 14,
         }}
       >

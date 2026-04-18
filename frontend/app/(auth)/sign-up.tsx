@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { View, Platform, KeyboardAvoidingView, ScrollView, Pressable } from 'react-native';
+import { View, Platform, KeyboardAvoidingView, ScrollView, Pressable, useWindowDimensions } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { Link, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
@@ -7,44 +7,61 @@ import * as Haptics from 'expo-haptics';
 import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
 import { TextField } from '@/components/ui/TextField';
-import { Headline, Body, BodySm, Mono, Overline } from '@/components/ui/Text';
+import { Headline, Body, BodySm, Overline } from '@/components/ui/Text';
 import { Noctis } from '@/components/brand/Noctis';
+import { NoctisSprite } from '@/components/brand/NoctisSprite';
 import { ENTER } from '@/components/ui/motion';
 import { useAppTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { palette, spacing } from '@/constants/tokens';
+import { palette, spacing, radii } from '@/constants/tokens';
+
+// ── Noctis sprite sizing ──────────────────────────────────────────────
+// Tweak these two numbers to resize the pixel-art crow on the sign-up page.
+const NOCTIS_SIZE_MOBILE = 104; // mobile: sits above the headline, inline with scroll
+const NOCTIS_SIZE_WEB = 72;     // web:    floats in the top-right corner
+
+// ── Form typography ───────────────────────────────────────────────────
+// Larger field labels for auth — the default Overline (10pt) reads as cramped
+// on the sign-up form. Bump size/spacing here.
+const FIELD_LABEL_STYLE = {
+  fontSize: 13,
+  lineHeight: 16,
+  letterSpacing: 2.4,
+  marginBottom: 12,
+} as const;
 
 export default function SignUpScreen() {
   const { isDark } = useAppTheme();
   const { signUp } = useAuth();
   const router = useRouter();
   const isWeb = Platform.OS === 'web';
+  const { height: windowHeight } = useWindowDimensions();
+  // Button floats ~6% of screen height above the bottom edge — scales with device.
+  const BOTTOM_OFFSET = Math.round(windowHeight * 0.06);
 
-  const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [confirm, setConfirm] = useState('');
   const [serverError, setServerError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [touchedConfirm, setTouchedConfirm] = useState(false);
   const [checkInbox, setCheckInbox] = useState(false);
-
-  const mismatch = touchedConfirm && confirm.length > 0 && confirm !== password;
 
   const canSubmit = useMemo(() => {
     return (
+      username.trim().length >= 2 &&
       email.trim().length > 3 &&
       email.includes('@') &&
       password.length >= 6 &&
-      confirm.length >= 6 &&
-      password === confirm &&
       !isLoading
     );
-  }, [email, password, confirm, isLoading]);
+  }, [username, email, password, isLoading]);
 
   const handleSignUp = async () => {
     setServerError(null);
-    setTouchedConfirm(true);
+    if (!username.trim()) {
+      setServerError('Choose a display name.');
+      return;
+    }
     if (!email.trim() || !password.trim()) {
       setServerError('Enter an email and password.');
       return;
@@ -53,15 +70,12 @@ export default function SignUpScreen() {
       setServerError('Password must be at least 6 characters.');
       return;
     }
-    if (password !== confirm) {
-      return;
-    }
     if (!isWeb) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     }
     setIsLoading(true);
     try {
-      await signUp(email.trim().toLowerCase(), password, username.trim() || undefined);
+      await signUp(email.trim().toLowerCase(), password, username.trim());
       // If email confirmation is required (prod), session won't exist yet — show inbox state.
       // In dev (confirmations off), AuthContext will flip isAuthenticated and index.tsx redirects.
       setCheckInbox(true);
@@ -78,7 +92,7 @@ export default function SignUpScreen() {
 
   if (checkInbox) {
     return (
-      <Screen background={isDark ? 'ink' : 'paper'} edges={['top', 'bottom']}>
+      <Screen background={isDark ? 'inkGradient' : 'paper'} edges={['top', 'bottom']}>
         <View
           style={{
             flex: 1,
@@ -104,155 +118,194 @@ export default function SignUpScreen() {
     );
   }
 
-  return (
-    <Screen background={isDark ? 'ink' : 'paper'} edges={['top', 'bottom']}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <Animated.View
-          entering={ENTER.fadeSlow(200)}
-          style={{
-            position: 'absolute',
-            top: spacing['4xl'],
-            right: spacing.xl,
-            zIndex: 2,
-          }}
-        >
-          <Noctis
-            variant="perched"
-            size={64}
-            color={textColor}
-            eyeColor={palette.sage}
-            animated
-          />
-        </Animated.View>
+  // Reserve enough room on mobile so fields can scroll clear of the
+  // absolutely-pinned button cluster at the bottom. Not needed on web.
+  const BOTTOM_CLUSTER_RESERVE = isWeb ? spacing['3xl'] : BOTTOM_OFFSET + 140;
 
+  const headerRow = (
+    <Animated.View
+      entering={ENTER.fadeUpSlow(240)}
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.lg,
+      }}
+    >
+      <View style={{ flex: 1 }}>
+        <Headline color={textColor}>
+          {isWeb ? 'From scroll to study.' : 'From scroll\nto study.'}
+        </Headline>
+      </View>
+      <NoctisSprite size={isWeb ? NOCTIS_SIZE_WEB : NOCTIS_SIZE_MOBILE} />
+    </Animated.View>
+  );
+
+  const fields = (
+    <Animated.View
+      entering={ENTER.fadeUp(600)}
+      style={{ gap: spacing.xl }}
+    >
+      <TextField
+        label="Display name"
+        labelStyle={FIELD_LABEL_STYLE}
+        placeholder="How should we greet you?"
+        autoCapitalize="words"
+        autoCorrect={false}
+        value={username}
+        onChangeText={(t) => {
+          setUsername(t);
+          if (serverError) setServerError(null);
+        }}
+        variant="boxed"
+        returnKeyType="next"
+      />
+      <TextField
+        label="Email"
+        labelStyle={FIELD_LABEL_STYLE}
+        placeholder="you@somewhere.com"
+        autoCapitalize="none"
+        autoCorrect={false}
+        autoComplete="email"
+        keyboardType="email-address"
+        value={email}
+        onChangeText={(t) => {
+          setEmail(t);
+          if (serverError) setServerError(null);
+        }}
+        variant="boxed"
+        error={serverError}
+        returnKeyType="next"
+      />
+      <TextField
+        label="Password"
+        labelStyle={FIELD_LABEL_STYLE}
+        placeholder="At least 6 characters"
+        secureTextEntry
+        autoComplete="new-password"
+        value={password}
+        onChangeText={setPassword}
+        variant="boxed"
+        returnKeyType="go"
+        onSubmitEditing={handleSignUp}
+      />
+    </Animated.View>
+  );
+
+  const bottomCluster = (
+    <>
+      <Animated.View entering={ENTER.fadeUp(760)}>
+        <Button
+          title={isLoading ? 'Creating account…' : 'Create account'}
+          variant="primary"
+          size="lg"
+          fullWidth
+          disabled={!canSubmit}
+          onPress={handleSignUp}
+        />
+      </Animated.View>
+
+      <Animated.View
+        entering={ENTER.fadeUp(880)}
+        style={{
+          marginTop: spacing.xl,
+          flexDirection: 'row',
+          justifyContent: 'center',
+          alignItems: 'center',
+          gap: spacing.xs,
+        }}
+      >
+        <BodySm color={subColor}>Already have a shelf?</BodySm>
+        <Link href="/(auth)/sign-in" asChild>
+          <Pressable>
+            <BodySm color={palette.sage} weight="semibold">
+              Sign in →
+            </BodySm>
+          </Pressable>
+        </Link>
+      </Animated.View>
+    </>
+  );
+
+  // ── Web: boxed layout ──
+  // Headline + crow sit above a card containing fields + button + link.
+  if (isWeb) {
+    return (
+      <Screen background={isDark ? 'inkGradient' : 'paper'} edges={['top', 'bottom']}>
         <ScrollView
           contentContainerStyle={{
             flexGrow: 1,
             paddingHorizontal: spacing['2xl'],
-            paddingTop: spacing['6xl'],
-            paddingBottom: spacing['3xl'],
-            justifyContent: 'space-between',
+            paddingVertical: spacing['4xl'],
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={{ width: '100%', maxWidth: 440 }}>
+            {headerRow}
+
+            <View
+              style={{
+                marginTop: spacing['2xl'],
+                padding: spacing['3xl'],
+                borderRadius: radii.xl,
+                backgroundColor: isDark ? palette.inkTint : palette.paperDeep,
+                borderWidth: 1,
+                borderColor: isDark ? palette.inkBorder : palette.fogBorder,
+                shadowColor: '#000',
+                shadowOpacity: 0.25,
+                shadowRadius: 24,
+                shadowOffset: { width: 0, height: 10 },
+              }}
+            >
+              {fields}
+              <View style={{ marginTop: spacing['2xl'] }}>{bottomCluster}</View>
+            </View>
+          </View>
+        </ScrollView>
+      </Screen>
+    );
+  }
+
+  // ── Mobile: scroll + absolute bottom cluster ──
+  return (
+    <Screen background={isDark ? 'inkGradient' : 'paper'} edges={['top', 'bottom']}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <ScrollView
+          contentContainerStyle={{
+            flexGrow: 1,
+            paddingHorizontal: spacing['2xl'],
+            paddingTop: spacing.xl,
+            paddingBottom: BOTTOM_CLUSTER_RESERVE,
           }}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          <View style={{ maxWidth: 480 }}>
-            <Animated.View entering={ENTER.fadeUp(100)}>
-              <Overline color={palette.sage}>Reelize · Create account</Overline>
-            </Animated.View>
-
-            <Animated.View entering={ENTER.fadeUpSlow(240)} style={{ marginTop: spacing.lg }}>
-              <Headline color={textColor}>Start your shelf.</Headline>
-            </Animated.View>
-
-            <Animated.View entering={ENTER.fadeUp(420)} style={{ marginTop: spacing.sm }}>
-              <Body color={subColor} italic family="serif">
-                A quiet library of lessons, pulled from the feed and made yours.
-              </Body>
-            </Animated.View>
-
-            <Animated.View entering={ENTER.fadeUp(600)} style={{ marginTop: spacing['3xl'], gap: spacing.lg }}>
-              <TextField
-                label="Email"
-                placeholder="you@somewhere.com"
-                autoCapitalize="none"
-                autoCorrect={false}
-                autoComplete="email"
-                keyboardType="email-address"
-                value={email}
-                onChangeText={(t) => {
-                  setEmail(t);
-                  if (serverError) setServerError(null);
-                }}
-                variant="boxed"
-                error={serverError}
-                returnKeyType="next"
-              />
-              <TextField
-                label="Display name (optional)"
-                placeholder="How should we greet you?"
-                autoCapitalize="words"
-                autoCorrect={false}
-                value={username}
-                onChangeText={setUsername}
-                variant="boxed"
-                returnKeyType="next"
-              />
-              <TextField
-                label="Password"
-                placeholder="At least 6 characters"
-                secureTextEntry
-                autoComplete="new-password"
-                value={password}
-                onChangeText={setPassword}
-                variant="boxed"
-                returnKeyType="next"
-              />
-              <TextField
-                label="Confirm password"
-                placeholder="Say it again"
-                secureTextEntry
-                autoComplete="new-password"
-                value={confirm}
-                onChangeText={(t) => {
-                  setConfirm(t);
-                  setTouchedConfirm(true);
-                }}
-                onBlur={() => setTouchedConfirm(true)}
-                variant="boxed"
-                error={mismatch ? 'Passwords don\u2019t match.' : null}
-                returnKeyType="go"
-                onSubmitEditing={handleSignUp}
-              />
-            </Animated.View>
-          </View>
-
-          <View style={{ marginTop: spacing['3xl'] }}>
-            <Animated.View entering={ENTER.fadeUp(760)}>
-              <Button
-                title={isLoading ? 'Creating account…' : 'Create account'}
-                variant="primary"
-                size="lg"
-                fullWidth
-                disabled={!canSubmit}
-                onPress={handleSignUp}
-              />
-            </Animated.View>
-
-            <Animated.View
-              entering={ENTER.fadeUp(880)}
-              style={{
-                marginTop: spacing.xl,
-                flexDirection: 'row',
-                justifyContent: 'center',
-                alignItems: 'center',
-                gap: spacing.xs,
-              }}
-            >
-              <BodySm color={subColor}>Already have a shelf?</BodySm>
-              <Link href="/(auth)/sign-in" asChild>
-                <Pressable>
-                  <BodySm color={palette.sage} weight="semibold">
-                    Sign in →
-                  </BodySm>
-                </Pressable>
-              </Link>
-            </Animated.View>
-
-            <Animated.View
-              entering={ENTER.fade(1000)}
-              style={{ marginTop: spacing['2xl'], alignItems: 'center' }}
-            >
-              <Mono color={isDark ? palette.teal : palette.fog} align="center">
-                by creating an account you agree to the terms · v1
-              </Mono>
-            </Animated.View>
+          <View style={{ width: '100%', maxWidth: 440 }}>
+            {headerRow}
+            <View style={{ marginTop: spacing['3xl'] }}>{fields}</View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Bottom cluster pinned to the screen — lives OUTSIDE KeyboardAvoidingView
+          so the keyboard opening/closing does not reflow it. */}
+      <View
+        pointerEvents="box-none"
+        style={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          bottom: BOTTOM_OFFSET,
+          paddingHorizontal: spacing['2xl'],
+          alignItems: 'center',
+        }}
+      >
+        <View style={{ width: '100%', maxWidth: 440 }}>{bottomCluster}</View>
+      </View>
     </Screen>
   );
 }

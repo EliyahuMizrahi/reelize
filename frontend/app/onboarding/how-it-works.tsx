@@ -81,7 +81,7 @@ export default function HowItWorksScreen() {
   };
 
   return (
-    <Screen background="ink" edges={['top', 'bottom']}>
+    <Screen background="inkGradient" edges={['top', 'bottom']}>
       {/* Parallax Noctis in corner */}
       <Animated.View
         style={[
@@ -108,9 +108,11 @@ export default function HowItWorksScreen() {
           paddingHorizontal: spacing['2xl'],
           paddingTop: spacing['5xl'],
           paddingBottom: spacing['3xl'],
+          ...(isWeb ? { alignItems: 'center' } : {}),
         }}
         showsVerticalScrollIndicator={false}
       >
+        <View style={{ width: '100%', maxWidth: 640, ...(isWeb ? { alignSelf: 'center' } : {}) }}>
         <Animated.View entering={ENTER.fadeUp(60)}>
           <Overline color={palette.sage}>Chapter 01 · How it works</Overline>
         </Animated.View>
@@ -138,6 +140,7 @@ export default function HowItWorksScreen() {
             your reels, teaching you what you told them to.
           </Body>
         </Animated.View>
+        </View>
       </ScrollView>
 
       <View
@@ -145,11 +148,12 @@ export default function HowItWorksScreen() {
           paddingHorizontal: spacing['2xl'],
           paddingBottom: spacing['3xl'],
           paddingTop: spacing.md,
-          backgroundColor: palette.ink,
           borderTopWidth: 1,
           borderTopColor: palette.inkBorder,
+          ...(isWeb ? { alignItems: 'center' } : {}),
         }}
       >
+        <View style={{ width: '100%', maxWidth: 440, ...(isWeb ? { alignSelf: 'center' } : {}) }}>
         <Button
           title="Next"
           variant="primary"
@@ -169,6 +173,7 @@ export default function HowItWorksScreen() {
         />
         <View style={{ marginTop: spacing.xl, alignItems: 'center' }}>
           <OnboardingProgress step={1} />
+        </View>
         </View>
       </View>
     </Screen>

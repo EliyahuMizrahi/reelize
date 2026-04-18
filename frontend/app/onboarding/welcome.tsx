@@ -87,7 +87,7 @@ export default function WelcomeScreen() {
   };
 
   return (
-    <Screen background="ink" edges={['top', 'bottom']}>
+    <Screen background="inkGradient" edges={['top', 'bottom']}>
       {/* Perched Noctis in the top-right corner, watching */}
       <Animated.View
         style={[
@@ -117,9 +117,10 @@ export default function WelcomeScreen() {
           paddingTop: spacing['6xl'],
           paddingBottom: spacing['3xl'],
           justifyContent: 'space-between',
+          ...(isWeb ? { alignItems: 'center' } : {}),
         }}
       >
-        <View style={{ maxWidth: 520 }}>
+        <View style={{ width: '100%', maxWidth: 560, ...(isWeb ? { alignSelf: 'center' } : {}) }}>
           <Animated.View entering={ENTER.fadeUp(80)}>
             <Overline color={palette.sage}>Chapter 00 · Welcome</Overline>
           </Animated.View>
@@ -181,7 +182,7 @@ export default function WelcomeScreen() {
           </Animated.View>
         </View>
 
-        <View>
+        <View style={{ width: '100%', maxWidth: 440, ...(isWeb ? { alignSelf: 'center' } : {}) }}>
           <Animated.View entering={ENTER.fadeUp(1100)}>
             <Button
               title="Begin"

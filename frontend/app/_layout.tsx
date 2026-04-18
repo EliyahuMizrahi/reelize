@@ -4,7 +4,7 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect } from "react";
-import { Platform, View } from "react-native";
+import { View } from "react-native";
 import "react-native-gesture-handler";
 import { useAppFonts } from "@/hooks/useAppFonts";
 import { palette } from "@/constants/tokens";
@@ -41,9 +41,10 @@ function RootShell() {
         screenOptions={{
           headerShown: false,
           contentStyle: { backgroundColor: colors.background as string },
-          ...(Platform.OS === "android" && {
-            animation: "fade",
-          }),
+          // Fade at the root stack level so splash → (auth) is a seamless
+          // crossfade on every platform. Inner stacks (e.g. sign-in ↔ sign-up)
+          // keep their own defaults.
+          animation: "fade",
         }}
       >
         <Stack.Screen name="index" />

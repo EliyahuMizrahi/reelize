@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Platform, KeyboardAvoidingView, ScrollView, Pressable } from 'react-native';
+import { View, Platform, KeyboardAvoidingView, ScrollView, Pressable, useWindowDimensions } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { Link, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
@@ -7,18 +7,35 @@ import * as Haptics from 'expo-haptics';
 import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
 import { TextField } from '@/components/ui/TextField';
-import { Headline, Body, BodySm, Mono, Overline } from '@/components/ui/Text';
-import { Noctis } from '@/components/brand/Noctis';
+import { Headline, BodySm } from '@/components/ui/Text';
+import { NoctisSprite } from '@/components/brand/NoctisSprite';
 import { ENTER } from '@/components/ui/motion';
 import { useAppTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { palette, spacing } from '@/constants/tokens';
+import { palette, spacing, radii } from '@/constants/tokens';
+
+// ── Noctis sprite sizing ──────────────────────────────────────────────
+// Keep in sync with sign-up.tsx for visual consistency.
+const NOCTIS_SIZE_MOBILE = 104;
+const NOCTIS_SIZE_WEB = 72;
+
+// ── Form typography ───────────────────────────────────────────────────
+const FIELD_LABEL_STYLE = {
+  fontSize: 13,
+  lineHeight: 16,
+  letterSpacing: 2.4,
+  marginBottom: 12,
+} as const;
+
 
 export default function SignInScreen() {
   const { isDark } = useAppTheme();
   const { login } = useAuth();
   const router = useRouter();
   const isWeb = Platform.OS === 'web';
+  const { height: windowHeight } = useWindowDimensions();
+  // Button floats ~6% of screen height above the bottom edge — scales with device.
+  const BOTTOM_OFFSET = Math.round(windowHeight * 0.06);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -52,137 +69,182 @@ export default function SignInScreen() {
   const textColor = isDark ? palette.mist : palette.ink;
   const subColor = isDark ? palette.fog : palette.teal;
 
-  return (
-    <Screen background={isDark ? 'ink' : 'paper'} edges={['top', 'bottom']}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <Animated.View
-          entering={ENTER.fadeSlow(200)}
-          style={{
-            position: 'absolute',
-            top: spacing['4xl'],
-            right: spacing.xl,
-            zIndex: 2,
-          }}
-        >
-          <Noctis
-            variant="watching"
-            size={54}
-            color={textColor}
-            eyeColor={palette.sage}
-            animated
-          />
-        </Animated.View>
+  const BOTTOM_CLUSTER_RESERVE = isWeb ? spacing['3xl'] : BOTTOM_OFFSET + 140;
 
+  const headerRow = (
+    <Animated.View
+      entering={ENTER.fadeUpSlow(240)}
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.lg,
+      }}
+    >
+      <View style={{ flex: 1 }}>
+        <Headline
+          color={textColor}
+          style={isWeb ? { fontSize: 33, lineHeight: 39 } : undefined}
+        >
+          {isWeb ? 'Back where you left off.' : 'Back where\nyou left off.'}
+        </Headline>
+      </View>
+      <NoctisSprite size={isWeb ? NOCTIS_SIZE_WEB : NOCTIS_SIZE_MOBILE} />
+    </Animated.View>
+  );
+
+  const fields = (
+    <Animated.View entering={ENTER.fadeUp(600)} style={{ gap: spacing.xl }}>
+      <TextField
+        label="Email"
+        labelStyle={FIELD_LABEL_STYLE}
+        placeholder="you@somewhere.com"
+        autoCapitalize="none"
+        autoCorrect={false}
+        autoComplete="email"
+        keyboardType="email-address"
+        value={email}
+        onChangeText={(t) => {
+          setEmail(t);
+          if (error) setError(null);
+        }}
+        onFocus={() => setFieldFocus('email')}
+        onBlur={() => setFieldFocus(null)}
+        variant="boxed"
+        error={error && fieldFocus !== 'password' ? error : null}
+        returnKeyType="next"
+      />
+      <TextField
+        label="Password"
+        labelStyle={FIELD_LABEL_STYLE}
+        placeholder="Your password"
+        secureTextEntry
+        autoComplete="current-password"
+        value={password}
+        onChangeText={(t) => {
+          setPassword(t);
+          if (error) setError(null);
+        }}
+        onFocus={() => setFieldFocus('password')}
+        onBlur={() => setFieldFocus(null)}
+        variant="boxed"
+        returnKeyType="go"
+        onSubmitEditing={handleSignIn}
+      />
+    </Animated.View>
+  );
+
+  const bottomCluster = (
+    <>
+      <Animated.View entering={ENTER.fadeUp(760)}>
+        <Button
+          title={isLoading ? 'Signing in…' : 'Sign in'}
+          variant="primary"
+          size="lg"
+          fullWidth
+          disabled={!canSubmit}
+          onPress={handleSignIn}
+        />
+      </Animated.View>
+
+      <Animated.View
+        entering={ENTER.fadeUp(880)}
+        style={{
+          marginTop: spacing.xl,
+          flexDirection: 'row',
+          justifyContent: 'center',
+          alignItems: 'center',
+          gap: spacing.xs,
+        }}
+      >
+        <BodySm color={subColor}>New here?</BodySm>
+        <Link href="/(auth)/sign-up" asChild>
+          <Pressable>
+            <BodySm color={palette.sage} weight="semibold">
+              Start your shelf →
+            </BodySm>
+          </Pressable>
+        </Link>
+      </Animated.View>
+    </>
+  );
+
+  // ── Web: boxed layout ──
+  if (isWeb) {
+    return (
+      <Screen background={isDark ? 'inkGradient' : 'paper'} edges={['top', 'bottom']}>
         <ScrollView
           contentContainerStyle={{
             flexGrow: 1,
             paddingHorizontal: spacing['2xl'],
-            paddingTop: spacing['6xl'],
-            paddingBottom: spacing['3xl'],
-            justifyContent: 'space-between',
+            paddingVertical: spacing['4xl'],
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={{ width: '100%', maxWidth: 440 }}>
+            {headerRow}
+
+            <View
+              style={{
+                marginTop: spacing['2xl'],
+                padding: spacing['3xl'],
+                borderRadius: radii.xl,
+                backgroundColor: isDark ? palette.inkTint : palette.paperDeep,
+                borderWidth: 1,
+                borderColor: isDark ? palette.inkBorder : palette.fogBorder,
+                shadowColor: '#000',
+                shadowOpacity: 0.25,
+                shadowRadius: 24,
+                shadowOffset: { width: 0, height: 10 },
+              }}
+            >
+              {fields}
+              <View style={{ marginTop: spacing['2xl'] }}>{bottomCluster}</View>
+            </View>
+          </View>
+        </ScrollView>
+      </Screen>
+    );
+  }
+
+  // ── Mobile: scroll + absolute bottom cluster ──
+  return (
+    <Screen background={isDark ? 'inkGradient' : 'paper'} edges={['top', 'bottom']}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <ScrollView
+          contentContainerStyle={{
+            flexGrow: 1,
+            paddingHorizontal: spacing['2xl'],
+            paddingTop: spacing.xl,
+            paddingBottom: BOTTOM_CLUSTER_RESERVE,
           }}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          <View style={{ maxWidth: 480 }}>
-            <Animated.View entering={ENTER.fadeUp(100)}>
-              <Overline color={palette.sage}>Reelize · Sign in</Overline>
-            </Animated.View>
-
-            <Animated.View entering={ENTER.fadeUpSlow(240)} style={{ marginTop: spacing.lg }}>
-              <Headline color={textColor}>Welcome back.</Headline>
-            </Animated.View>
-
-            <Animated.View entering={ENTER.fadeUp(420)} style={{ marginTop: spacing.sm }}>
-              <Body color={subColor} italic family="serif">
-                Your private study shelf awaits.
-              </Body>
-            </Animated.View>
-
-            <Animated.View entering={ENTER.fadeUp(600)} style={{ marginTop: spacing['3xl'], gap: spacing.lg }}>
-              <TextField
-                label="Email"
-                placeholder="you@somewhere.com"
-                autoCapitalize="none"
-                autoCorrect={false}
-                autoComplete="email"
-                keyboardType="email-address"
-                value={email}
-                onChangeText={(t) => {
-                  setEmail(t);
-                  if (error) setError(null);
-                }}
-                onFocus={() => setFieldFocus('email')}
-                onBlur={() => setFieldFocus(null)}
-                variant="boxed"
-                error={error && fieldFocus !== 'password' ? error : null}
-                returnKeyType="next"
-              />
-              <TextField
-                label="Password"
-                placeholder="Your password"
-                secureTextEntry
-                autoComplete="current-password"
-                value={password}
-                onChangeText={(t) => {
-                  setPassword(t);
-                  if (error) setError(null);
-                }}
-                onFocus={() => setFieldFocus('password')}
-                onBlur={() => setFieldFocus(null)}
-                variant="boxed"
-                returnKeyType="go"
-                onSubmitEditing={handleSignIn}
-              />
-            </Animated.View>
-          </View>
-
-          <View style={{ marginTop: spacing['3xl'] }}>
-            <Animated.View entering={ENTER.fadeUp(760)}>
-              <Button
-                title={isLoading ? 'Signing in…' : 'Sign in'}
-                variant="primary"
-                size="lg"
-                fullWidth
-                disabled={!canSubmit}
-                onPress={handleSignIn}
-              />
-            </Animated.View>
-
-            <Animated.View
-              entering={ENTER.fadeUp(880)}
-              style={{
-                marginTop: spacing.xl,
-                flexDirection: 'row',
-                justifyContent: 'center',
-                alignItems: 'center',
-                gap: spacing.xs,
-              }}
-            >
-              <BodySm color={subColor}>New here?</BodySm>
-              <Link href="/(auth)/sign-up" asChild>
-                <Pressable>
-                  <BodySm color={palette.sage} weight="semibold">
-                    Start your shelf →
-                  </BodySm>
-                </Pressable>
-              </Link>
-            </Animated.View>
-
-            <Animated.View
-              entering={ENTER.fade(1000)}
-              style={{ marginTop: spacing['2xl'], alignItems: 'center' }}
-            >
-              <Mono color={isDark ? palette.teal : palette.fog}>
-                no feed · no followers · just your shelf
-              </Mono>
-            </Animated.View>
+          <View style={{ width: '100%', maxWidth: 440 }}>
+            {headerRow}
+            <View style={{ marginTop: spacing['3xl'] }}>{fields}</View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <View
+        pointerEvents="box-none"
+        style={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          bottom: BOTTOM_OFFSET,
+          paddingHorizontal: spacing['2xl'],
+          alignItems: 'center',
+        }}
+      >
+        <View style={{ width: '100%', maxWidth: 440 }}>{bottomCluster}</View>
+      </View>
     </Screen>
   );
 }

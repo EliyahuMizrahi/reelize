@@ -101,7 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     await supabase.auth.signOut();
-    router.replace('/(auth)/sign-in' as any);
+    router.replace('/(auth)/sign-up' as any);
   }, [router]);
 
   const refreshProfile = useCallback(async () => {

@@ -123,20 +123,22 @@ export default function FirstClassScreen() {
     if (isAuthenticated) {
       router.replace('/(tabs)/feed');
     } else {
-      router.replace('/(auth)/sign-in');
+      router.replace('/(auth)/sign-up');
     }
   };
 
   return (
-    <Screen background="ink" edges={['top', 'bottom']}>
+    <Screen background="inkGradient" edges={['top', 'bottom']}>
       <ScrollView
         contentContainerStyle={{
           paddingHorizontal: spacing['2xl'],
           paddingTop: spacing['5xl'],
           paddingBottom: spacing['2xl'],
+          ...(isWeb ? { alignItems: 'center' } : {}),
         }}
         showsVerticalScrollIndicator={false}
       >
+        <View style={{ width: '100%', maxWidth: 960, ...(isWeb ? { alignSelf: 'center' } : {}) }}>
         <Animated.View entering={ENTER.fadeUp(60)}>
           <Overline color={palette.sage}>Chapter 02 · First class</Overline>
         </Animated.View>
@@ -172,6 +174,7 @@ export default function FirstClassScreen() {
             </Animated.View>
           ))}
         </View>
+        </View>
       </ScrollView>
 
       <View
@@ -181,8 +184,10 @@ export default function FirstClassScreen() {
           paddingTop: spacing.md,
           borderTopWidth: 1,
           borderTopColor: palette.inkBorder,
+          ...(isWeb ? { alignItems: 'center' } : {}),
         }}
       >
+        <View style={{ width: '100%', maxWidth: 440, ...(isWeb ? { alignSelf: 'center' } : {}) }}>
         <Button
           title="Enter your library"
           variant={selected ? 'primary' : 'tertiary'}
@@ -193,6 +198,7 @@ export default function FirstClassScreen() {
         />
         <View style={{ marginTop: spacing.xl, alignItems: 'center' }}>
           <OnboardingProgress step={2} />
+        </View>
         </View>
       </View>
     </Screen>

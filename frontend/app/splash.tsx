@@ -1,197 +1,239 @@
-import React, { useEffect } from 'react';
-import { View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import {
+  View,
+  Platform,
+  Pressable,
+  useWindowDimensions,
+} from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
-  useAnimatedProps,
   withTiming,
-  withDelay,
+  withRepeat,
   withSequence,
   Easing,
-  SharedValue,
 } from 'react-native-reanimated';
-import Svg, { Path, Circle } from 'react-native-svg';
 import { useRouter } from 'expo-router';
+import * as Haptics from 'expo-haptics';
+import Svg, { Path } from 'react-native-svg';
+
 import { Screen } from '@/components/ui/Screen';
-import { Display, Body } from '@/components/ui/Text';
-import { palette, motion } from '@/constants/tokens';
+import { Button } from '@/components/ui/Button';
+import { Display, Body, BodySm } from '@/components/ui/Text';
+import { NoctisSprite } from '@/components/brand/NoctisSprite';
+import { ENTER } from '@/components/ui/motion';
+import { palette, spacing, radii } from '@/constants/tokens';
 
-const AnimatedCircle = Animated.createAnimatedComponent(Circle);
-const AnimatedPath = Animated.createAnimatedComponent(Path);
+// ── Bird sizing ───────────────────────────────────────────────────────
+const NOCTIS_SIZE_MOBILE = 160;
+const NOCTIS_SIZE_WEB = 180;
 
-// Six shards flying in from 6 directions, assembling into the Noctis silhouette.
-// Destination positions derive from the Noctis body/wing geometry.
-type ShardSeed = {
-  d: string;
-  fromX: number;
-  fromY: number;
-  fromRot: number;
-  opacity: number;
-  delay: number;
-};
-
-const SHARDS: ShardSeed[] = [
-  // top-left sweep
-  { d: 'M 16 86 L 34 58 L 58 40 L 34 54 L 26 72 Z', fromX: -160, fromY: -120, fromRot: -35, opacity: 0.92, delay: 40 },
-  // top
-  { d: 'M 58 40 L 80 34 L 90 42 L 76 48 L 62 46 Z', fromX: 0, fromY: -220, fromRot: 25, opacity: 0.95, delay: 120 },
-  // top-right / head region
-  { d: 'M 72 42 L 92 40 L 108 50 L 94 58 L 80 50 Z', fromX: 220, fromY: -140, fromRot: 42, opacity: 0.88, delay: 220 },
-  // right / beak
-  { d: 'M 92 42 L 110 48 L 94 54 Z', fromX: 260, fromY: 20, fromRot: 60, opacity: 1, delay: 340 },
-  // bottom-right / tail
-  { d: 'M 84 70 L 90 42 L 74 92 L 52 104 L 74 80 Z', fromX: 180, fromY: 180, fromRot: -28, opacity: 0.82, delay: 160 },
-  // bottom-left / underbelly
-  { d: 'M 32 102 L 52 104 L 44 88 L 22 90 Z', fromX: -200, fromY: 160, fromRot: 40, opacity: 0.78, delay: 80 },
+// ── Typewriter phrases ────────────────────────────────────────────────
+// Cycles through these one at a time — types each, holds, then deletes.
+const PHRASES = [
+  'Welcome.',
+  'Come in.',
+  'Quiet in here.',
+  'The shelf is yours.',
 ];
+const TYPE_SPEED_MS = 55;
+const DELETE_SPEED_MS = 28;
+const HOLD_AT_FULL_MS = 1500;
+const GAP_BETWEEN_MS = 320;
 
-function Shard({ seed, progress }: { seed: ShardSeed; progress: SharedValue<number> }) {
-  const animatedProps = useAnimatedProps(() => {
-    // Each shard has a slightly staggered arrival inside the main progress window
-    const p = Math.max(0, Math.min(1, (progress.value * 1600 - seed.delay) / 1000));
-    // ease-out-quint for a confident settle
-    const t = 1 - Math.pow(1 - p, 5);
-    const tx = seed.fromX * (1 - t);
-    const ty = seed.fromY * (1 - t);
-    const rot = seed.fromRot * (1 - t);
-    return {
-      transform: `translate(${tx} ${ty}) rotate(${rot} 60 60)`,
-      opacity: seed.opacity * (p > 0 ? 1 : 0) * (0.4 + 0.6 * t),
-    } as any;
-  });
+// ── Typewriter hook ───────────────────────────────────────────────────
+function useTypewriter(phrases: string[]) {
+  const [phraseIdx, setPhraseIdx] = useState(0);
+  const [text, setText] = useState('');
+  const [phase, setPhase] = useState<'typing' | 'holding' | 'deleting'>('typing');
 
-  return (
-    <AnimatedPath
-      d={seed.d}
-      fill={palette.mist}
-      animatedProps={animatedProps as any}
-    />
-  );
+  useEffect(() => {
+    const current = phrases[phraseIdx];
+
+    if (phase === 'typing') {
+      if (text.length < current.length) {
+        const t = setTimeout(() => setText(current.slice(0, text.length + 1)), TYPE_SPEED_MS);
+        return () => clearTimeout(t);
+      }
+      const t = setTimeout(() => setPhase('holding'), 0);
+      return () => clearTimeout(t);
+    }
+
+    if (phase === 'holding') {
+      const t = setTimeout(() => setPhase('deleting'), HOLD_AT_FULL_MS);
+      return () => clearTimeout(t);
+    }
+
+    // deleting
+    if (text.length > 0) {
+      const t = setTimeout(() => setText(text.slice(0, text.length - 1)), DELETE_SPEED_MS);
+      return () => clearTimeout(t);
+    }
+    const t = setTimeout(() => {
+      setPhraseIdx((i) => (i + 1) % phrases.length);
+      setPhase('typing');
+    }, GAP_BETWEEN_MS);
+    return () => clearTimeout(t);
+  }, [text, phase, phraseIdx, phrases]);
+
+  return text;
+}
+
+// Blinking cursor — Reanimated so it runs on the native thread.
+function useCursor() {
+  const opacity = useSharedValue(1);
+  useEffect(() => {
+    opacity.value = withRepeat(
+      withSequence(
+        withTiming(0, { duration: 420, easing: Easing.in(Easing.cubic) }),
+        withTiming(1, { duration: 420, easing: Easing.out(Easing.cubic) }),
+      ),
+      -1,
+    );
+  }, []);
+  return useAnimatedStyle(() => ({ opacity: opacity.value }));
 }
 
 export default function SplashScreen() {
   const router = useRouter();
+  const isWeb = Platform.OS === 'web';
+  const { height: windowHeight } = useWindowDimensions();
+  const BOTTOM_OFFSET = Math.round(windowHeight * 0.06);
 
-  const assembly = useSharedValue(0); // 0 → 1 over ~1.1s
-  const silhouetteOpacity = useSharedValue(0); // smooths the final "settled" form
-  const eyeScale = useSharedValue(0);
-  const eyeGlow = useSharedValue(0);
-  const titleOpacity = useSharedValue(0);
-  const titleY = useSharedValue(10);
-  const taglineOpacity = useSharedValue(0);
+  const typed = useTypewriter(PHRASES);
+  const cursorStyle = useCursor();
 
-  useEffect(() => {
-    const ease = Easing.bezier(...motion.ease.entrance);
+  const handleStart = () => {
+    if (!isWeb) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    }
+    router.replace('/(auth)/sign-up');
+  };
 
-    // Shards fly in and assemble
-    assembly.value = withTiming(1, { duration: 1100, easing: ease });
-    // Unified silhouette fades in on top to hide seams once assembled
-    silhouetteOpacity.value = withDelay(
-      900,
-      withTiming(1, { duration: 320, easing: ease }),
-    );
-    // Eye ignites LAST — scale pop + bloom pulse
-    eyeScale.value = withDelay(
-      1260,
-      withTiming(1, { duration: 260, easing: Easing.bezier(0.22, 1, 0.36, 1) }),
-    );
-    eyeGlow.value = withDelay(
-      1260,
-      withSequence(
-        withTiming(1, { duration: 320, easing: ease }),
-        withTiming(0.6, { duration: 420, easing: ease }),
-      ),
-    );
-
-    // Title fades in on a separate beat
-    titleOpacity.value = withDelay(1500, withTiming(1, { duration: 500, easing: ease }));
-    titleY.value = withDelay(1500, withTiming(0, { duration: 500, easing: ease }));
-
-    // Tagline whispers last
-    taglineOpacity.value = withDelay(1900, withTiming(1, { duration: 480, easing: ease }));
-
-    // Navigate after full cinema duration
-    const t = setTimeout(() => {
-      router.replace('/(auth)/sign-in');
-    }, 2600);
-
-    return () => clearTimeout(t);
-  }, []);
-
-  const silhouetteStyle = useAnimatedStyle(() => ({
-    opacity: silhouetteOpacity.value,
-  }));
-
-  const eyeAnimatedProps = useAnimatedProps(() => ({
-    r: 2.6 * eyeScale.value + 0.1,
-    opacity: 0.6 + 0.4 * eyeScale.value,
-  }));
-
-  const eyeBloomProps = useAnimatedProps(() => ({
-    r: 9 + 6 * eyeGlow.value,
-    opacity: 0.28 * eyeGlow.value,
-  }));
-
-  const titleStyle = useAnimatedStyle(() => ({
-    opacity: titleOpacity.value,
-    transform: [{ translateY: titleY.value }],
-  }));
-
-  const taglineStyle = useAnimatedStyle(() => ({
-    opacity: taglineOpacity.value,
-  }));
+  const handleSignIn = () => {
+    router.replace('/(auth)/sign-in');
+  };
 
   return (
-    <Screen background="ink" edges={['top', 'bottom']}>
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-        <View style={{ width: 220, height: 220, alignItems: 'center', justifyContent: 'center' }}>
-          {/* Shards flying in */}
-          <Svg
-            width={220}
-            height={220}
-            viewBox="0 0 120 120"
-            style={{ position: 'absolute' }}
+    <Screen background="inkGradient" edges={['top', 'bottom']}>
+      <View
+        style={{
+          flex: 1,
+          paddingHorizontal: spacing['2xl'],
+          paddingTop: spacing['3xl'],
+          paddingBottom: BOTTOM_OFFSET,
+          alignItems: 'center',
+        }}
+      >
+        {/* Header */}
+        <Animated.View
+          entering={ENTER.fadeUpSlow(80)}
+          style={{ width: '100%', maxWidth: 440, alignItems: 'center' }}
+        >
+          <Display color={palette.mist} align="center">
+            Reelize
+          </Display>
+          <Body
+            family="serif"
+            italic
+            color={palette.fog}
+            align="center"
+            style={{ marginTop: spacing.sm }}
           >
-            {SHARDS.map((s, i) => (
-              <Shard key={i} seed={s} progress={assembly} />
-            ))}
-          </Svg>
+            Learn in the language of the feed.
+          </Body>
+        </Animated.View>
 
-          {/* Unified silhouette fades up once shards have assembled */}
-          <Animated.View style={[{ position: 'absolute' }, silhouetteStyle]}>
-            <Svg width={220} height={220} viewBox="0 0 120 120">
-              <Path
-                d="M 16 86 L 34 58 L 58 40 L 80 34 L 90 42 L 84 70 L 74 92 L 52 104 L 32 102 Z"
-                fill={palette.mist}
-              />
-              <Path
-                d="M 38 64 L 72 42 L 92 40 L 108 50 L 94 58 L 76 64 L 56 82 Z"
-                fill={palette.mist}
-                opacity={0.42}
-              />
-              <Path d="M 92 42 L 110 48 L 94 54 Z" fill={palette.mist} />
-              {/* eye bloom */}
-              <AnimatedCircle cx={96} cy={48} fill={palette.sage} animatedProps={eyeBloomProps} />
-              {/* eye core */}
-              <AnimatedCircle cx={96} cy={48} fill={palette.sage} animatedProps={eyeAnimatedProps} />
-              <Circle cx={97.2} cy={47.1} r={0.9} fill="#FFFFFF" opacity={0.85} />
-            </Svg>
+        {/* Middle: bubble on the left, Noctis on the right */}
+        <View
+          style={{
+            flex: 1,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: '100%',
+            maxWidth: 520,
+            gap: spacing.sm,
+          }}
+        >
+          <Animated.View
+            entering={ENTER.fadeSlow(360)}
+            style={{ flex: 1, alignItems: 'flex-end' }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', maxWidth: 240 }}>
+              <View
+                style={{
+                  flex: 1,
+                  backgroundColor: palette.paper,
+                  paddingVertical: spacing.md,
+                  paddingHorizontal: spacing.lg,
+                  borderRadius: radii.lg,
+                  minHeight: 56,
+                  justifyContent: 'center',
+                  shadowColor: '#000',
+                  shadowOpacity: 0.25,
+                  shadowRadius: 14,
+                  shadowOffset: { width: 0, height: 6 },
+                  elevation: 6,
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'flex-end' }}>
+                  <Body family="serif" color={palette.ink}>
+                    {typed}
+                  </Body>
+                  <Animated.View style={cursorStyle}>
+                    <Body family="serif" color={palette.ink}>
+                      |
+                    </Body>
+                  </Animated.View>
+                </View>
+              </View>
+              <BubbleTail />
+            </View>
+          </Animated.View>
+
+          <Animated.View entering={ENTER.fadeSlow(360)}>
+            <NoctisSprite
+              size={isWeb ? NOCTIS_SIZE_WEB : NOCTIS_SIZE_MOBILE}
+              animation="talking"
+              fps={8}
+            />
           </Animated.View>
         </View>
 
-        <View style={{ marginTop: 44, alignItems: 'center' }}>
-          <Animated.View style={titleStyle}>
-            <Display color={palette.mist} align="center">
-              Reelize
-            </Display>
+        {/* Bottom CTA cluster */}
+        <View style={{ width: '100%', maxWidth: 440, alignItems: 'center' }}>
+          <Animated.View entering={ENTER.fadeUp(700)} style={{ width: '100%' }}>
+            <Button title="Start" variant="primary" size="lg" fullWidth onPress={handleStart} />
           </Animated.View>
-          <Animated.View style={[{ marginTop: 12 }, taglineStyle]}>
-            <Body italic color={palette.fog} align="center">
-              Learn in the language of the feed.
-            </Body>
+
+          <Animated.View
+            entering={ENTER.fadeUp(860)}
+            style={{
+              marginTop: spacing.xl,
+              flexDirection: 'row',
+              justifyContent: 'center',
+              alignItems: 'center',
+              gap: spacing.xs,
+            }}
+          >
+            <BodySm color={palette.fog}>Already have a shelf?</BodySm>
+            <Pressable onPress={handleSignIn}>
+              <BodySm color={palette.sage} weight="semibold">
+                Sign in →
+              </BodySm>
+            </Pressable>
           </Animated.View>
         </View>
       </View>
     </Screen>
+  );
+}
+
+function BubbleTail() {
+  return (
+    <Svg width={10} height={18} viewBox="0 0 10 18" style={{ marginLeft: -1 }}>
+      <Path d="M 0 0 L 10 9 L 0 18 Z" fill={palette.paper} />
+    </Svg>
   );
 }

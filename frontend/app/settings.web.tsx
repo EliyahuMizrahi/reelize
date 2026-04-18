@@ -21,6 +21,7 @@ import { Noctis, NoctisLockup } from '@/components/brand/Noctis';
 import { palette, spacing, radii } from '@/constants/tokens';
 import { ENTER } from '@/components/ui/motion';
 import { useAppTheme, type PaletteName } from '@/contexts/ThemeContext';
+import { useAuth } from '@/contexts/AuthContext';
 
 type SectionKey = 'account' | 'appearance' | 'notifications' | 'data' | 'about';
 
@@ -90,7 +91,7 @@ function SectionBlock({ title, children }: { title: string; children: React.Reac
   return (
     <View>
       <Overline muted style={{ marginBottom: spacing.md, marginLeft: spacing.xl }}>{title}</Overline>
-      <Surface padded={0} radius="xl" bordered>
+      <Surface padded={0} radius="xl" bordered style={{ overflow: 'hidden' }}>
         {children}
       </Surface>
     </View>
@@ -100,7 +101,19 @@ function SectionBlock({ title, children }: { title: string; children: React.Reac
 // ───────────────────────── Account ─────────────────────────
 function AccountSection() {
   const { colors } = useAppTheme();
-  const [email, setEmail] = useState('info@ringitinc.com');
+  const { logout, user } = useAuth();
+  const [email, setEmail] = useState(user?.email ?? '');
+  const [isSigningOut, setIsSigningOut] = useState(false);
+
+  const handleSignOut = async () => {
+    if (isSigningOut) return;
+    setIsSigningOut(true);
+    try {
+      await logout();
+    } finally {
+      setIsSigningOut(false);
+    }
+  };
 
   return (
     <View style={{ gap: spacing['2xl'] }}>
@@ -154,9 +167,9 @@ function AccountSection() {
 
       <SectionBlock title="DANGER">
         <Row
-          title="Sign out"
+          title={isSigningOut ? 'Signing out…' : 'Sign out'}
           hint="you can come back any time"
-          onPress={() => {}}
+          onPress={handleSignOut}
           right={<Feather name="log-out" size={14} color={palette.teal} />}
         />
         <Divider />

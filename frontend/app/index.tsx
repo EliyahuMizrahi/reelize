@@ -1,6 +1,6 @@
 import { Redirect } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
-import { View } from 'react-native';
+import { Platform, View } from 'react-native';
 import { useAppTheme } from '@/contexts/ThemeContext';
 import { Noctis } from '@/components/brand/Noctis';
 import { palette } from '@/constants/tokens';
@@ -34,5 +34,6 @@ export default function Index() {
     return <Redirect href="/(tabs)/feed" />;
   }
 
-  return <Redirect href="/splash" />;
+  // Splash / intro screen is mobile-only. Web users land straight on sign-up.
+  return <Redirect href={Platform.OS === 'web' ? '/(auth)/sign-up' : '/splash'} />;
 }
