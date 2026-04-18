@@ -501,15 +501,6 @@ export default function FeedScreen() {
           >
             Your shelf is empty.
           </Title>
-          <BodySm
-            align="center"
-            family="serif"
-            italic
-            color={palette.fog}
-            style={{ marginTop: 8, maxWidth: 260 }}
-          >
-            Paste a reel you love and we'll learn its voice.
-          </BodySm>
           <View style={{ marginTop: spacing['2xl'] }}>
             <Button
               variant="shimmer"

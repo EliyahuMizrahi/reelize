@@ -528,11 +528,6 @@ export default function CreateScreen() {
             <Animated.View entering={ENTER.fadeUp(60)}>
               <Display2>Start with a reel you love.</Display2>
             </Animated.View>
-            <Animated.View entering={ENTER.fadeUp(160)}>
-              <BodyLg italic muted style={{ marginTop: spacing.sm }}>
-                We'll learn its voice.
-              </BodyLg>
-            </Animated.View>
           </View>
 
           <Animated.View entering={ENTER.fadeUp(260)}>

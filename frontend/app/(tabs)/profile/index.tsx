@@ -171,11 +171,6 @@ export default function DashboardScreen() {
           </Surface>
         </Animated.View>
 
-        <Animated.View entering={ENTER.fadeUp(240)} style={{ alignItems: 'center', marginTop: spacing.md }}>
-          <MonoSm muted style={{ opacity: 0.6 }}>
-            reelize v0.1 · built for quiet study
-          </MonoSm>
-        </Animated.View>
       </ScrollView>
     </Screen>
   );

@@ -62,7 +62,7 @@ export default function TabsLayout() {
         screenOptions={{
           headerShown: false,
           tabBarShowLabel: true,
-          tabBarActiveTintColor: colors.primary as string,
+          tabBarActiveTintColor: palette.mist,
           tabBarInactiveTintColor: colors.mutedText as string,
           tabBarStyle: {
             backgroundColor: colors.card as string,
@@ -77,7 +77,7 @@ export default function TabsLayout() {
         screenListeners={{
           tabPress: () => {
             if (Platform.OS !== "web") {
-              Haptics.selectionAsync().catch(() => {});
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
             }
           },
         }}
