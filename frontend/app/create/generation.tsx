@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Pressable, Platform } from 'react-native';
+import { View, Pressable, Platform, Image } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -29,7 +29,8 @@ import {
   ensureUnsortedTopic,
   logActivity,
 } from '@/data/mutations';
-import { analyze } from '@/services/api';
+import { analyze, cancelJob } from '@/services/api';
+import { useJobStream } from '@/hooks/useJobStream';
 
 /* ========================================================
    Status timeline
@@ -46,6 +47,17 @@ const STATUSES = [
 ];
 
 const TOKEN_LABELS = ['PACING', 'HOOK', 'CAPTIONS', 'VOICE', 'MUSIC', 'VISUAL'];
+
+// Maps each orbit token to the backend event that "unlocks" it. When the
+// matching event arrives on the job stream, the token lights up as applied.
+const TOKEN_EVENT_TYPES: Record<string, string> = {
+  PACING: 'audio.done',
+  HOOK: 'video.done',
+  CAPTIONS: 'artifacts.video_analysis.done',
+  VOICE: 'artifacts.voices.done',
+  MUSIC: 'artifacts.music.done',
+  VISUAL: 'artifacts.hero.done',
+};
 
 /* ========================================================
    Orbiting "APPLIED" token — lights up on stagger
@@ -171,9 +183,11 @@ function RingHalo({ size }: { size: number }) {
 function ResolvedCard({
   topic,
   onPlay,
+  heroUrl,
 }: {
   topic: string;
   onPlay: () => void;
+  heroUrl: string | null;
 }) {
   const { colors } = useAppTheme();
   const enter = useSharedValue(0);
@@ -194,14 +208,23 @@ function ResolvedCard({
           overflow: 'hidden',
           borderWidth: 1,
           borderColor: colors.border as string,
+          backgroundColor: palette.inkElevated,
         }}
       >
-        <Svg width={176} height={312} viewBox="0 0 176 312">
-          <Rect x={0} y={0} width={176} height={312} fill={palette.inkElevated} />
-          <Path d="M 0 210 L 60 170 L 120 194 L 176 150 L 176 312 L 0 312 Z" fill={palette.ink} opacity={0.55} />
-          <Circle cx={88} cy={120} r={34} fill={palette.sage} opacity={0.35} />
-          <Path d="M 80 110 L 102 122 L 80 134 Z" fill={palette.mist} />
-        </Svg>
+        {heroUrl ? (
+          <Image
+            source={{ uri: heroUrl }}
+            style={{ width: '100%', height: '100%' }}
+            resizeMode="cover"
+          />
+        ) : (
+          <Svg width={176} height={312} viewBox="0 0 176 312">
+            <Rect x={0} y={0} width={176} height={312} fill={palette.inkElevated} />
+            <Path d="M 0 210 L 60 170 L 120 194 L 176 150 L 176 312 L 0 312 Z" fill={palette.ink} opacity={0.55} />
+            <Circle cx={88} cy={120} r={34} fill={palette.sage} opacity={0.35} />
+            <Path d="M 80 110 L 102 122 L 80 134 Z" fill={palette.mist} />
+          </Svg>
+        )}
         <View style={{ position: 'absolute', left: 12, top: 12 }}>
           <ShimmerBadge label="NEW · 0:30" compact />
         </View>
@@ -253,6 +276,22 @@ export default function GenerationScreen() {
   const [statusIdx, setStatusIdx] = useState(0);
   const [appliedCount, setAppliedCount] = useState(0);
   const [resolved, setResolved] = useState(false);
+  const [jobId, setJobId] = useState<string | null>(null);
+
+  // If we have a sourceUrl we'll call analyze() and stream real progress.
+  // Without one (demo taps / local-only), we fall back to the mock timeline.
+  const willStreamRef = useRef(!!sourceUrl);
+
+  const stream = useJobStream(jobId);
+  const {
+    byType,
+    progressPct,
+    latestMessage,
+    status: streamStatus,
+    error: streamError,
+    heroUrl,
+    sfxItems,
+  } = stream;
 
   // Track the in-flight job + resulting clip so Cancel can clean up
   // and Play can route to the created clip.
@@ -269,8 +308,9 @@ export default function GenerationScreen() {
     return () => clearTimeout(t);
   }, []);
 
-  // Status rotator — every 900ms
+  // Status rotator — every 900ms (mock mode only).
   useEffect(() => {
+    if (willStreamRef.current) return;
     const id = setInterval(() => {
       setStatusIdx((i) => {
         const n = i + 1;
@@ -284,8 +324,10 @@ export default function GenerationScreen() {
     return () => clearInterval(id);
   }, []);
 
-  // Applied-token reveal staggered ~420ms apart, starting at 600ms
+  // Applied-token reveal staggered ~420ms apart (mock mode only). In stream
+  // mode the tokens light up driven by real event types — see render below.
   useEffect(() => {
+    if (willStreamRef.current) return;
     const timers: ReturnType<typeof setTimeout>[] = [];
     for (let i = 0; i < 6; i++) {
       timers.push(
@@ -303,15 +345,45 @@ export default function GenerationScreen() {
     return () => timers.forEach(clearTimeout);
   }, []);
 
-  // Progress: simulate ramp that hits 95% after tokens, settles to 100%
-  const progress = useSharedValue(0);
+  // Light haptic when each token gets applied in stream mode.
+  const lastHapticTokenRef = useRef<string | null>(null);
   useEffect(() => {
-    // Over ~3800ms climb to 0.95, then jump to 1 when resolved
+    if (!willStreamRef.current) return;
+    for (const label of TOKEN_LABELS) {
+      const evType = TOKEN_EVENT_TYPES[label];
+      if (byType[evType] && lastHapticTokenRef.current !== label) {
+        lastHapticTokenRef.current = label;
+        if (Platform.OS !== 'web') {
+          Haptics.selectionAsync().catch(() => {});
+        }
+      }
+    }
+  }, [byType]);
+
+  // Progress bar shared value. In mock mode it ramps to 95% then 100%; in
+  // stream mode it follows progress_pct from the latest event.
+  const progress = useSharedValue(0);
+  const lastProgressTargetRef = useRef(0);
+
+  useEffect(() => {
+    if (willStreamRef.current) return;
     progress.value = withTiming(0.95, {
       duration: 3800,
       easing: Easing.bezier(0.4, 0, 0.2, 1),
     });
   }, []);
+
+  // Drive progress from real events (never regress — discrete events arrive
+  // in order but defensively clamp against the prior target).
+  useEffect(() => {
+    if (!willStreamRef.current || !jobId) return;
+    const target = Math.max(lastProgressTargetRef.current, progressPct / 100);
+    lastProgressTargetRef.current = target;
+    progress.value = withTiming(target, {
+      duration: 700,
+      easing: Easing.bezier(0.4, 0, 0.2, 1),
+    });
+  }, [jobId, progressPct]);
 
   // On mount: create the clip row (status='generating'), then POST to the
   // backend /analyze endpoint which stamps user_id + clip_id on the jobs
@@ -354,6 +426,7 @@ export default function GenerationScreen() {
             });
             if (!cancelled && !cancelledRef.current) {
               jobIdRef.current = res.job_id;
+              setJobId(res.job_id);
             }
           } catch (err) {
             // Backend may be down in dev — not fatal; keep the clip around.
@@ -373,8 +446,10 @@ export default function GenerationScreen() {
     };
   }, [incomingTopicId, topic, sourceUrl, sourceCreator]);
 
-  // Resolve the visual timeline at ~4200ms regardless of real job state.
+  // Mock mode: resolve the visual timeline at ~4200ms regardless of real
+  // job state. Stream mode resolves on the real `job.done` event below.
   useEffect(() => {
+    if (willStreamRef.current) return;
     const t = setTimeout(() => {
       progress.value = withTiming(1, { duration: 500, easing: Easing.bezier(0.22, 1, 0.36, 1) });
       if (cancelledRef.current) return;
@@ -385,6 +460,18 @@ export default function GenerationScreen() {
     }, 4200);
     return () => clearTimeout(t);
   }, []);
+
+  // Stream mode: resolve when `job.done` arrives.
+  useEffect(() => {
+    if (!willStreamRef.current) return;
+    if (!byType['job.done']) return;
+    if (cancelledRef.current || resolved) return;
+    progress.value = withTiming(1, { duration: 500, easing: Easing.bezier(0.22, 1, 0.36, 1) });
+    setResolved(true);
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    }
+  }, [byType, resolved]);
 
   // Zoom-in when resolving — shrink the token/shards cluster
   const clusterFade = useSharedValue(1);
@@ -415,8 +502,13 @@ export default function GenerationScreen() {
     cancelledRef.current = true;
     const cid = clipIdRef.current;
     const jid = jobIdRef.current;
+    // Ask the worker to stop at its next checkpoint, then clean up the rows.
+    // All three calls are fire-and-forget — navigation shouldn't block on them.
+    if (jid) {
+      cancelJob(jid).catch(() => {});
+      deleteJob(jid).catch(() => {});
+    }
     if (cid) deleteClip(cid).catch(() => {});
-    if (jid) deleteJob(jid).catch(() => {});
     router.replace('/create/topic' as any);
   };
 
@@ -433,20 +525,46 @@ export default function GenerationScreen() {
     }
   };
 
-  // Auto-navigate into the player shortly after resolve so the user
-  // doesn't have to tap "Play lesson".
+  // Auto-navigate after resolve. If we have SFX candidates, route to the
+  // review step first so the user can keep/drop them before playback.
   useEffect(() => {
     if (!resolved) return;
     const t = setTimeout(() => {
       if (cancelledRef.current) return;
       const cid = clipIdRef.current;
-      if (cid) router.replace(`/player/${cid}` as any);
+      const jid = jobIdRef.current;
+      if (!cid) return;
+      if (jid && sfxItems.length > 0) {
+        router.replace({
+          pathname: '/create/sfx-review',
+          params: { jobId: jid, clipId: cid, topic },
+        } as any);
+      } else {
+        router.replace(`/player/${cid}` as any);
+      }
     }, 1400);
     return () => clearTimeout(t);
-  }, [resolved, router]);
+  }, [resolved, router, sfxItems.length, topic]);
 
   return (
     <Screen background="ink">
+      {/* Hero frame as a dim backdrop once it arrives. Sits below the grain so
+          the ink wash tones it down to a hint. */}
+      {heroUrl && !resolved ? (
+        <Image
+          source={{ uri: heroUrl }}
+          resizeMode="cover"
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            top: 0,
+            bottom: 0,
+            opacity: 0.18,
+          }}
+        />
+      ) : null}
+
       {/* grain */}
       <View
         pointerEvents="none"
@@ -494,19 +612,24 @@ export default function GenerationScreen() {
             {/* Shards — assembling inward */}
             <Shards size={180} phase={shardsPhase} duration={3500} color={palette.sage} />
 
-            {/* Orbit of applied tokens */}
+            {/* Orbit of applied tokens — in stream mode each lights up when
+                its mapped event arrives; in mock mode they stagger on a timer. */}
             {TOKEN_LABELS.map((label, i) => (
               <AppliedToken
                 key={label}
                 label={label}
                 pos={orbit[i]}
                 index={i}
-                applied={i < appliedCount}
+                applied={
+                  willStreamRef.current
+                    ? !!byType[TOKEN_EVENT_TYPES[label]]
+                    : i < appliedCount
+                }
               />
             ))}
           </Animated.View>
         ) : (
-          <ResolvedCard topic={topic} onPlay={onPlay} />
+          <ResolvedCard topic={topic} onPlay={onPlay} heroUrl={heroUrl} />
         )}
       </View>
 
@@ -529,10 +652,21 @@ export default function GenerationScreen() {
         {!resolved ? (
           <>
             <View style={{ alignItems: 'center', gap: 6 }}>
-              <Overline style={{ letterSpacing: 2.6 }} color={palette.sage}>
-                COMPOSING
+              <Overline
+                style={{ letterSpacing: 2.6 }}
+                color={streamStatus === 'failed' ? palette.gold : palette.sage}
+              >
+                {streamStatus === 'failed' ? 'FAILED' : 'COMPOSING'}
               </Overline>
-              <Mono color={palette.mist}>{STATUSES[statusIdx]}</Mono>
+              <Mono color={palette.mist}>
+                {willStreamRef.current
+                  ? streamStatus === 'failed'
+                    ? (streamError ?? 'Job failed')
+                    : jobId
+                      ? (latestMessage || 'Connecting…')
+                      : 'Starting…'
+                  : STATUSES[statusIdx]}
+              </Mono>
             </View>
             <ProgressBar progress={progress} />
           </>

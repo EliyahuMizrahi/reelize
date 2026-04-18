@@ -100,7 +100,7 @@ class ShazamIdentifier:
         """Cut [start, end] from the BG stem and run Shazam on it."""
         tag = f"{int(start * 100):06d}_{int(end * 100):06d}"
         path = self.cfg.chunks_dir / f"seg_{tag}.wav"
-        subprocess.run(
+        proc = subprocess.run(
             [
                 "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
                 "-i", str(self.background_music),
@@ -108,8 +108,15 @@ class ShazamIdentifier:
                 "-ar", "16000", "-ac", "1",
                 str(path),
             ],
-            check=True, capture_output=True,
+            capture_output=True,
         )
+        if proc.returncode != 0 or not path.exists() or path.stat().st_size == 0:
+            stderr = (proc.stderr or b"").decode("utf-8", errors="replace")[-500:]
+            log.warning(
+                "ffmpeg segment cut failed (%.1f→%.1fs, code=%d): %s",
+                start, end, proc.returncode, stderr,
+            )
+            return None
         try:
             out = await self._shazam.recognize(str(path))
             await asyncio.sleep(self.cfg.shazam_rate_limit)

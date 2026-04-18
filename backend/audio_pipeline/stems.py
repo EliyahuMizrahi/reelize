@@ -24,8 +24,8 @@ class StemArtifacts:
 
 def separate_stems(source_audio: Path, cfg: PipelineConfig) -> dict[str, Path]:
     """Run Demucs on the source audio, returning {stem_name: path}."""
-    log.info("Running Demucs (%s)...", cfg.demucs_model)
-    subprocess.run(
+    log.info("Running Demucs (%s, device=%s)...", cfg.demucs_model, cfg.device)
+    result = subprocess.run(
         [
             "python", "-m", "demucs",
             "-n", cfg.demucs_model,
@@ -33,8 +33,31 @@ def separate_stems(source_audio: Path, cfg: PipelineConfig) -> dict[str, Path]:
             "-o", str(cfg.stems_dir),
             str(source_audio),
         ],
-        check=True,
+        capture_output=True,
+        text=True,
     )
+    if result.returncode != 0:
+        # Persist full output — demucs spams long torchcodec/ffmpeg warnings
+        # that push the real error past any tail-truncation budget.
+        full = (
+            "=== demucs stderr ===\n" + (result.stderr or "") +
+            "\n=== demucs stdout ===\n" + (result.stdout or "")
+        )
+        log_path = cfg.output_dir / "demucs_error.log"
+        try:
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            log_path.write_text(full, encoding="utf-8")
+        except Exception as write_err:  # noqa: BLE001
+            log.warning("failed to write demucs error log: %s", write_err)
+        stderr = (result.stderr or "").strip()
+        head = stderr[:1500]
+        tail = stderr[-1500:] if len(stderr) > 1500 else ""
+        raise RuntimeError(
+            f"demucs exited {result.returncode} (device={cfg.device}); "
+            f"full log: {log_path}\n"
+            f"--- stderr head ---\n{head}\n"
+            f"--- stderr tail ---\n{tail}"
+        )
 
     # Demucs writes to {stems_dir}/{model_name}/{source_stem}/
     source_stem = source_audio.stem

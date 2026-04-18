@@ -96,12 +96,28 @@ def build_manifest(inputs: Inputs, cfg: PipelineConfig) -> dict:
     write_json(sfx_manifest_path, [s.to_dict() for s in inputs.sfx])
 
     # ── Top-level manifest ─────────────────────────────────────
+    diar = inputs.diarization
     manifest = {
         "source": {
             "url": inputs.source_url,
             "audio": str(inputs.source_audio),
             "duration": round(run_ffprobe_duration(inputs.source_audio), 2),
         },
+        "diarization": (
+            {
+                "num_speakers": diar.num_speakers,
+                "turns": [
+                    {
+                        "start": round(float(s), 3),
+                        "end": round(float(e), 3),
+                        "speaker": spk,
+                    }
+                    for s, e, spk in diar.turns
+                ],
+            }
+            if diar
+            else None
+        ),
         "stems": {
             **{k: str(v) for k, v in inputs.stems.stems.items()},
             "background": str(inputs.stems.background_music),
@@ -123,6 +139,7 @@ def build_manifest(inputs: Inputs, cfg: PipelineConfig) -> dict:
             "bpm": inputs.rhythm.bpm,
             "beats_file": str(beat_grid_path),
             "num_beats": len(inputs.rhythm.beats),
+            "beats": [float(b) for b in inputs.rhythm.beats],
         },
         "energy": {
             "envelope_file": str(inputs.rhythm.energy_envelope_path),

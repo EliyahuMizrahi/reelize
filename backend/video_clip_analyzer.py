@@ -36,7 +36,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from pydantic import BaseModel
 from PIL import Image
@@ -80,6 +80,15 @@ class AnalyzerConfig:
     # Logging
     verbose: bool = True
 
+    # Cooperative cancellation — the worker sets a flag when a sibling stage
+    # fails so we can stop burning Gemini calls mid-run. Python threads can't
+    # be killed, so every long-running loop polls this between API calls.
+    should_cancel: Callable[[], bool] = field(default=lambda: False)
+
+
+class AnalysisCancelled(RuntimeError):
+    """Raised from inside the analyzer when the cancel flag flips."""
+
 
 # =====================================================================
 # Output schemas
@@ -102,11 +111,30 @@ class Segment(BaseModel):
     emotion: str
 
 
+class CaptionStyle(BaseModel):
+    present: bool
+    style_description: str
+    font_feel: str              # impact-bold | rounded-sans | system-sans | handwritten | serif | mono
+    weight: str                 # regular | bold | black
+    case: str                   # UPPERCASE | Title Case | lowercase | Mixed
+    primary_color: str          # hex or name
+    stroke_color: Optional[str]
+    stroke_width_px_estimate: Optional[int]
+    position: str               # top | upper-third | center | lower-third | bottom
+    size: str                   # small | medium | large | huge
+    word_highlight: str         # none | color_swap | box | underline | scale_pulse
+    highlight_color: Optional[str]
+    animation: str              # static | typewriter | word_by_word | pop_in | bounce
+    emoji_usage: str            # none | sparse | frequent
+    background: str             # none | semi-transparent-box | solid-box
+
+
 class ClipAnalysis(BaseModel):
     game_detected: str
     total_duration_seconds: float
     clip_summary: str
     highlight_summary: str
+    caption_style: Optional[CaptionStyle] = None
     segments: list[Segment]
 
 
@@ -199,6 +227,7 @@ class VideoClipAnalyzer:
             self._log(f"   {len(frames)} frames over {video_duration:.1f}s")
 
             # PASS 1 — coarse
+            self._check_cancel()
             prompt = self._build_prompt(
                 cut_points, video_duration, len(frames), clip_context, game_hint
             )
@@ -207,11 +236,13 @@ class VideoClipAnalyzer:
             self._log(f"   {len(coarse.segments)} coarse segments")
 
             # PASS 2 — refinement
+            self._check_cancel()
             result = self._run_refinement_pass(
                 coarse, video_path, video_duration, clip_context
             )
 
             # PASS 3 — snapping + boundary verification
+            self._check_cancel()
             self._log("🔧 Pass 3: snapping + boundary verification ...")
             self._snap_boundaries_to_scene_cuts(result.segments, cut_points)
             self._verify_and_relabel_segments(
@@ -273,6 +304,11 @@ class VideoClipAnalyzer:
     def _log(self, msg: str) -> None:
         if self.config.verbose:
             print(msg)
+
+    def _check_cancel(self) -> None:
+        """Raise AnalysisCancelled if the worker has signalled abort."""
+        if self.config.should_cancel():
+            raise AnalysisCancelled("analysis cancelled by sibling stage failure")
 
     def _track_temp(self, path: str) -> str:
         self._temp_dirs.append(path)
@@ -448,6 +484,24 @@ ENHANCED FIELDS:
 13. emotion: "hype", "tense", "funny", "calm", "satisfying", "dramatic", "intense", "neutral", "focused".
 14. highlight_summary: one-sentence summary of just the highlight.
 
+CAPTION STYLE (top-level `caption_style` field — describes captions/subtitles across the whole clip):
+- present: true only if on-screen captions/subtitles/word-text exist.
+- style_description: one concise sentence describing the look.
+- font_feel: "impact-bold" | "rounded-sans" | "system-sans" | "handwritten" | "serif" | "mono".
+- weight: "regular" | "bold" | "black".
+- case: "UPPERCASE" | "Title Case" | "lowercase" | "Mixed".
+- primary_color: hex "#RRGGBB" or common name ("white").
+- stroke_color: hex or null.
+- stroke_width_px_estimate: integer px or null.
+- position: "top" | "upper-third" | "center" | "lower-third" | "bottom".
+- size: "small" | "medium" | "large" | "huge".
+- word_highlight: "none" | "color_swap" | "box" | "underline" | "scale_pulse".
+- highlight_color: hex or null.
+- animation: "static" | "typewriter" | "word_by_word" | "pop_in" | "bounce".
+- emoji_usage: "none" | "sparse" | "frequent".
+- background: "none" | "semi-transparent-box" | "solid-box".
+If no captions are present, set present=false; other fields may use neutral defaults.
+
 Return ONLY valid JSON matching the provided schema."""
 
     # ---------------- Gemini calls ------------------------------------
@@ -457,6 +511,7 @@ Return ONLY valid JSON matching the provided schema."""
         max_attempts = self.config.max_retries * num_clients
         last_err: Exception | None = None
         for attempt in range(max_attempts):
+            self._check_cancel()
             try:
                 response = self.client.models.generate_content(
                     model=self.config.model, contents=contents, config=config
@@ -466,7 +521,10 @@ Return ONLY valid JSON matching the provided schema."""
                     if attempt < max_attempts - 1:
                         time.sleep(2 ** (attempt % self.config.max_retries))
                         continue
+                    raise RuntimeError("Gemini returned empty response after all retries")
                 return response
+            except AnalysisCancelled:
+                raise
             except Exception as e:
                 last_err = e
                 key_tag = f"key {self._client_idx + 1}/{num_clients}"
@@ -484,7 +542,7 @@ Return ONLY valid JSON matching the provided schema."""
                     time.sleep(2 ** (attempt % self.config.max_retries))
         if last_err:
             raise last_err
-        return None
+        raise RuntimeError("Gemini generate_content exhausted retries with no response")
 
     def _frames_to_contents(self, frames) -> list:
         contents = []
@@ -520,6 +578,7 @@ Return ONLY valid JSON matching the provided schema."""
         self._log(f"🔬 Pass 2: refining {len(long_segs)} long segments ...")
         all_refined: list[Segment] = []
         for seg in coarse.segments:
+            self._check_cancel()
             if seg.duration_seconds <= cfg.refinement_threshold_seconds:
                 all_refined.append(seg)
                 continue
@@ -537,6 +596,7 @@ Return ONLY valid JSON matching the provided schema."""
             total_duration_seconds=coarse.total_duration_seconds,
             clip_summary=coarse.clip_summary,
             highlight_summary=coarse.highlight_summary,
+            caption_style=coarse.caption_style,
             segments=all_refined,
         )
 
@@ -625,6 +685,8 @@ Return ONLY valid JSON matching the provided schema."""
             if resp and resp.text:
                 refined = ClipAnalysis.model_validate_json(resp.text)
                 return list(refined.segments)
+        except AnalysisCancelled:
+            raise
         except Exception as e:
             self._log(f"   ❌ Refinement failed for seg {seg.segment_index}: {e}")
         return [seg]
@@ -651,6 +713,7 @@ Return ONLY valid JSON matching the provided schema."""
         cfg = self.config
         fixes = 0
         for seg in segments:
+            self._check_cancel()
             check_times = [
                 seg.start_seconds,
                 min(seg.start_seconds + 0.2, seg.end_seconds),
@@ -714,6 +777,8 @@ Return JSON."""
                         seg.text_on_screen = check.text_visible
                     if not check.boundary_looks_correct:
                         seg.confidence = min(seg.confidence, 0.6)
+            except AnalysisCancelled:
+                raise
             except Exception as e:
                 self._log(f"   ❌ Verify failed for seg {seg.segment_index}: {e}")
             time.sleep(0.5)

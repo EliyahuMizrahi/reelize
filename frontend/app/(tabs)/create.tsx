@@ -264,38 +264,13 @@ function PreviewCard({
 
 /* --- Paste URL Tab --- */
 
-function PasteUrlTab({ onReady }: { onReady: (url: string, preview: Preview) => void }) {
+function PasteUrlTab({ onReady }: { onReady: (url: string) => void }) {
   const [url, setUrl] = useState('');
-  const [preview, setPreview] = useState<Preview>(null);
-  const [loading, setLoading] = useState(false);
+  const platform = detectPlatform(url);
 
   useEffect(() => {
-    if (!url || url.length < 6) {
-      setPreview(null);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setPreview(null);
-    const t = setTimeout(() => {
-      const plat = detectPlatform(url) ?? 'TikTok';
-      // Source-preview metadata is still a stub — the real scraper is
-      // not wired yet. Surface enough for the UI to feel alive.
-      setPreview({
-        handle: '@source',
-        captionLine: 'watching for metadata…',
-        duration: '0:30',
-        platform: plat,
-        thumbColor: palette.tealDeep,
-      });
-      setLoading(false);
-    }, 900);
-    return () => clearTimeout(t);
-  }, [url]);
-
-  useEffect(() => {
-    onReady(url, preview);
-  }, [url, preview, onReady]);
+    onReady(url);
+  }, [url, onReady]);
 
   return (
     <View style={{ marginTop: spacing['2xl'] }}>
@@ -310,15 +285,12 @@ function PasteUrlTab({ onReady }: { onReady: (url: string, preview: Preview) => 
         keyboardType="url"
         helperText="TikTok, Instagram Reel, YouTube Short"
       />
-
-      {loading && !preview ? (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: spacing.lg }}>
+      {platform ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: spacing.md }}>
           <DotPulse />
-          <MonoSm muted>Fetching source…</MonoSm>
+          <MonoSm muted>Detected · {platform}</MonoSm>
         </View>
       ) : null}
-
-      <PreviewCard preview={preview} loading={loading} />
     </View>
   );
 }
@@ -382,49 +354,17 @@ function RollThumb({
   );
 }
 
-function CameraRollTab({ onReady }: { onReady: (url: string, preview: Preview) => void }) {
-  const [selected, setSelected] = useState<number | null>(null);
-  const [preview, setPreview] = useState<Preview>(null);
-  const [loading, setLoading] = useState(false);
-
+function CameraRollTab({ onReady }: { onReady: (url: string) => void }) {
+  // Not wired yet — will be replaced with an expo-image-picker flow once
+  // we add upload support to /analyze on the frontend. Parent gets an empty
+  // URL so the Deconstruct button stays disabled while this tab is active.
   useEffect(() => {
-    if (selected == null) return;
-    setLoading(true);
-    setPreview(null);
-    const t = setTimeout(() => {
-      setPreview({
-        handle: 'Roll · IMG_' + (2300 + selected),
-        captionLine: 'captured on-device · 9:16 · no metadata',
-        duration: '0:24',
-        platform: 'TikTok',
-        thumbColor: ROLL_SWATCHES[selected],
-      });
-      setLoading(false);
-    }, 700);
-    return () => clearTimeout(t);
-  }, [selected]);
-
-  useEffect(() => {
-    onReady(selected != null ? 'roll://' + selected : '', preview);
-  }, [selected, preview, onReady]);
-
+    onReady('');
+  }, [onReady]);
   return (
-    <View style={{ marginTop: spacing['2xl'] }}>
-      <Overline muted style={{ marginBottom: spacing.md }}>
-        Your library · 128 clips
-      </Overline>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
-        {ROLL_SWATCHES.map((c, i) => (
-          <RollThumb
-            key={i}
-            color={c}
-            index={i}
-            selected={selected === i}
-            onPress={() => setSelected(i)}
-          />
-        ))}
-      </View>
-      <PreviewCard preview={preview} loading={loading} />
+    <View style={{ marginTop: spacing['2xl'], alignItems: 'center', gap: spacing.md }}>
+      <MonoSm muted>Camera roll upload isn't wired up yet.</MonoSm>
+      <MonoSm muted>Paste a URL for now.</MonoSm>
     </View>
   );
 }
@@ -528,7 +468,6 @@ export default function CreateScreen() {
   const { colors } = useAppTheme();
   const [tab, setTab] = useState<Tab>('url');
   const [activeUrl, setActiveUrl] = useState('');
-  const [activePreview, setActivePreview] = useState<Preview>(null);
 
   const noctisFloat = useSharedValue(0);
   useEffect(() => {
@@ -544,7 +483,7 @@ export default function CreateScreen() {
     transform: [{ translateY: noctisFloat.value }],
   }));
 
-  const ready = Boolean(activePreview) && Boolean(activeUrl);
+  const ready = activeUrl.trim().length > 6 && detectPlatform(activeUrl) !== null;
 
   const onDeconstruct = () => {
     if (!ready) return;
@@ -603,22 +542,12 @@ export default function CreateScreen() {
           {/* Tab content */}
           {tab === 'url' && (
             <Animated.View key="url" entering={FadeIn.duration(motion.dur.normal)}>
-              <PasteUrlTab
-                onReady={(u, p) => {
-                  setActiveUrl(u);
-                  setActivePreview(p);
-                }}
-              />
+              <PasteUrlTab onReady={setActiveUrl} />
             </Animated.View>
           )}
           {tab === 'roll' && (
             <Animated.View key="roll" entering={FadeIn.duration(motion.dur.normal)}>
-              <CameraRollTab
-                onReady={(u, p) => {
-                  setActiveUrl(u);
-                  setActivePreview(p);
-                }}
-              />
+              <CameraRollTab onReady={setActiveUrl} />
             </Animated.View>
           )}
           {tab === 'recents' && (

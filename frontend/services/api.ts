@@ -97,3 +97,95 @@ export function getJob(jobId: string): Promise<JobRow> {
 export function listJobs(limit = 20): Promise<JobRow[]> {
   return request<JobRow[]>(`/jobs?limit=${limit}`);
 }
+
+// ---------- streaming progress + artifacts ----------
+
+export interface JobEvent {
+  id: number;
+  type: string;
+  stage: string | null;
+  progress_pct: number | null;
+  message: string | null;
+  data: Record<string, unknown> | null;
+  created_at: string;
+}
+
+/** Replay progress history for a job. Pass sinceId to fetch only newer events. */
+export function getJobEvents(jobId: string, sinceId?: number, limit?: number): Promise<JobEvent[]> {
+  const params = new URLSearchParams();
+  if (sinceId !== undefined) params.set('since_id', String(sinceId));
+  if (limit !== undefined) params.set('limit', String(limit));
+  const qs = params.toString();
+  return request<JobEvent[]>(`/jobs/${jobId}/events${qs ? `?${qs}` : ''}`);
+}
+
+/** Value for a single artifact slot. Strings are direct signed URLs; maps are
+ * keyed by a label (e.g. `voices` → { SPEAKER_00: url, SPEAKER_01: url }). */
+export type ArtifactValue = string | Record<string, string>;
+
+export interface ArtifactsResponse {
+  ttl_seconds: number;
+  artifacts: Record<string, ArtifactValue>;
+}
+
+export function listJobArtifacts(jobId: string, ttlSeconds = 3600): Promise<ArtifactsResponse> {
+  return request<ArtifactsResponse>(`/jobs/${jobId}/artifacts?ttl_seconds=${ttlSeconds}`);
+}
+
+export interface ArtifactResponse {
+  name: string;
+  ttl_seconds: number;
+  url: ArtifactValue;
+  key: string | Record<string, string>;
+}
+
+export function getJobArtifact(
+  jobId: string,
+  name: string,
+  ttlSeconds = 3600,
+): Promise<ArtifactResponse> {
+  return request<ArtifactResponse>(
+    `/jobs/${jobId}/artifacts/${encodeURIComponent(name)}?ttl_seconds=${ttlSeconds}`,
+  );
+}
+
+// ---------- job control ----------
+
+export function cancelJob(jobId: string): Promise<{ status: string }> {
+  return request<{ status: string }>(`/jobs/${jobId}/cancel`, { method: 'POST' });
+}
+
+// ---------- SFX review ----------
+
+export interface SfxItem {
+  id: number;
+  key: string;
+  video_time: number;
+  duration: number;
+  strength: number;
+  section_idx: number;
+  beat_offset: number | null;
+}
+
+export interface SelectSfxResponse {
+  kept: SfxItem[];
+  deleted: string[];
+}
+
+export function selectSfx(jobId: string, keepIds: number[]): Promise<SelectSfxResponse> {
+  return request<SelectSfxResponse>(`/jobs/${jobId}/sfx/select`, {
+    method: 'POST',
+    body: JSON.stringify({ keep_ids: keepIds }),
+  });
+}
+
+export type SfxItemWithUrl = SfxItem & { url: string | null };
+
+export interface SfxListResponse {
+  ttl_seconds: number;
+  items: SfxItemWithUrl[];
+}
+
+export function listSfxWithUrls(jobId: string, ttlSeconds = 3600): Promise<SfxListResponse> {
+  return request<SfxListResponse>(`/jobs/${jobId}/sfx?ttl_seconds=${ttlSeconds}`);
+}

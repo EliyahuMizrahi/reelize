@@ -1,7 +1,7 @@
 // React hooks for async Supabase queries. No third-party cache —
 // useState + useEffect + abort-on-unmount.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -19,7 +19,40 @@ import {
   type StreakDay,
   type TopicWithClipCount,
 } from '@/data/queries';
+import { supabase } from '@/lib/supabase';
 import type { Row } from '@/types/supabase';
+
+/**
+ * Subscribe to clips-table changes and invoke `refresh()` on every event.
+ * RLS filters the broadcast to only rows the current user owns, so we don't
+ * need a user-scoped filter. Pass a Postgres filter string (e.g.
+ * `topic_id=eq.<uuid>`) to narrow further.
+ */
+function useClipsLiveRefresh(refresh: () => void, filter?: string): void {
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
+  const idRef = useRef<string>('');
+  if (!idRef.current) idRef.current = Math.random().toString(36).slice(2, 10);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel(`clips-live-${idRef.current}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'clips',
+          ...(filter ? { filter } : {}),
+        },
+        () => refreshRef.current(),
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [filter]);
+}
 
 export interface AsyncResult<T> {
   data: T | null;
@@ -128,13 +161,15 @@ export function useTopic(id: string | undefined): AsyncResult<Row<'topics'>> {
 export function useClipsForTopic(
   topicId: string | undefined,
 ): AsyncResult<Row<'clips'>[]> {
-  return useAsync<Row<'clips'>[]>(
+  const result = useAsync<Row<'clips'>[]>(
     () => {
       if (!topicId) return Promise.resolve([]);
       return fetchClipsForTopic(topicId);
     },
     [topicId],
   );
+  useClipsLiveRefresh(result.refresh, topicId ? `topic_id=eq.${topicId}` : undefined);
+  return result;
 }
 
 export function useClip(id: string | undefined): AsyncResult<Row<'clips'>> {
@@ -144,6 +179,10 @@ export function useClip(id: string | undefined): AsyncResult<Row<'clips'>> {
       return fetchClip(id);
     },
     [id],
+  );
+  useClipsLiveRefresh(
+    result.refresh as () => void,
+    id ? `id=eq.${id}` : undefined,
   );
   return result as AsyncResult<Row<'clips'>>;
 }
@@ -158,6 +197,7 @@ export function useFeed(limit = 30): AsyncResult<Row<'clips'>[]> {
     },
     [userId, limit],
   );
+  useClipsLiveRefresh(result.refresh);
   if (!userId) return emptyResult();
   return result;
 }

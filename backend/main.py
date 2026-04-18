@@ -1,6 +1,8 @@
+import json
 import logging
 import os
 import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -18,6 +20,7 @@ from dotenv import load_dotenv
 from fastapi import (
     BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, UploadFile,
 )
+from pydantic import BaseModel
 
 load_dotenv()
 logging.basicConfig(
@@ -26,6 +29,7 @@ logging.basicConfig(
 )
 
 from auth import CurrentUser, get_current_user
+from storage import get_storage
 from supabase_client import get_supabase
 from worker import process_job
 
@@ -134,3 +138,198 @@ def list_jobs(
         .execute()
     )
     return resp.data or []
+
+
+def _authorize_job(job_id: str, user: CurrentUser, select: str) -> dict:
+    """Fetch the job row with `select` columns, 404 if the caller doesn't own it."""
+    resp = (
+        get_supabase()
+        .table("jobs")
+        .select(select)
+        .eq("id", job_id)
+        .maybe_single()
+        .execute()
+    )
+    data = resp.data
+    if not data or data.get("user_id") != user.id:
+        raise HTTPException(404, "job not found")
+    return data
+
+
+@app.get("/jobs/{job_id}/events")
+def get_job_events(
+    job_id: str,
+    user: CurrentUser = Depends(get_current_user),
+    since_id: Optional[int] = None,
+    limit: int = 500,
+) -> list[dict]:
+    """Replay progress events for a job. Pass `since_id` to fetch only newer ones.
+
+    The frontend should call this on mount (to rebuild the timeline after a
+    refresh) and then subscribe to Supabase Realtime for live inserts.
+    """
+    _authorize_job(job_id, user, "user_id")
+    q = (
+        get_supabase()
+        .table("job_events")
+        .select("id,type,stage,progress_pct,message,data,created_at")
+        .eq("job_id", job_id)
+    )
+    if since_id is not None:
+        q = q.gt("id", since_id)
+    resp = q.order("id").limit(max(1, min(2000, limit))).execute()
+    return resp.data or []
+
+
+def _sign(value, ttl: int) -> object:
+    """Turn a storage key (str) or a {label: key} dict into signed URL(s)."""
+    storage = get_storage()
+    if isinstance(value, str):
+        return storage.signed_url(value, ttl)
+    if isinstance(value, dict):
+        return {k: storage.signed_url(v, ttl) for k, v in value.items() if isinstance(v, str)}
+    return value
+
+
+@app.get("/jobs/{job_id}/artifacts")
+def list_job_artifacts(
+    job_id: str,
+    user: CurrentUser = Depends(get_current_user),
+    ttl_seconds: int = 3600,
+) -> dict:
+    """Return a name → signed-URL map for every artifact attached to the job."""
+    data = _authorize_job(job_id, user, "user_id,artifacts")
+    artifacts = data.get("artifacts") or {}
+    ttl = max(60, min(86400, ttl_seconds))
+    return {
+        "ttl_seconds": ttl,
+        "artifacts": {name: _sign(value, ttl) for name, value in artifacts.items()},
+    }
+
+
+@app.get("/jobs/{job_id}/artifacts/{name}")
+def get_job_artifact(
+    job_id: str,
+    name: str,
+    user: CurrentUser = Depends(get_current_user),
+    ttl_seconds: int = 3600,
+) -> dict:
+    """Single-artifact signed URL. For `voices` this returns a map keyed by speaker."""
+    data = _authorize_job(job_id, user, "user_id,artifacts")
+    artifacts = data.get("artifacts") or {}
+    value = artifacts.get(name)
+    if value is None:
+        raise HTTPException(404, f"artifact '{name}' not found")
+    ttl = max(60, min(86400, ttl_seconds))
+    return {"name": name, "ttl_seconds": ttl, "url": _sign(value, ttl), "key": value}
+
+
+@app.get("/jobs/{job_id}/sfx")
+def list_sfx_with_urls(
+    job_id: str,
+    user: CurrentUser = Depends(get_current_user),
+    ttl_seconds: int = 3600,
+) -> dict:
+    """Return each SFX candidate merged with a signed URL for playback."""
+    data = _authorize_job(job_id, user, "user_id,artifacts")
+    artifacts = data.get("artifacts") or {}
+    sfx = artifacts.get("sfx") or {}
+    items = sfx.get("items") or []
+    ttl = max(60, min(86400, ttl_seconds))
+    storage = get_storage()
+    out: list[dict] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        key = item.get("key")
+        url = storage.signed_url(key, ttl) if isinstance(key, str) else None
+        out.append({**item, "url": url})
+    return {"ttl_seconds": ttl, "items": out}
+
+
+@app.post("/jobs/{job_id}/cancel")
+def cancel_job(
+    job_id: str,
+    user: CurrentUser = Depends(get_current_user),
+) -> dict:
+    """Flip the job to status='cancelled'. The worker picks this up at the next
+    checkpoint and bails out with a `job.cancelled` event."""
+    _authorize_job(job_id, user, "user_id,status")
+    get_supabase().table("jobs").update(
+        {
+            "status": "cancelled",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+    ).eq("id", job_id).execute()
+    return {"status": "cancelled"}
+
+
+class SelectSfxBody(BaseModel):
+    keep_ids: list[int]
+
+
+@app.post("/jobs/{job_id}/sfx/select")
+def select_sfx(
+    job_id: str,
+    body: SelectSfxBody,
+    user: CurrentUser = Depends(get_current_user),
+) -> dict:
+    """Keep only the listed SFX ids; delete every other SFX blob from storage
+    and rewrite the manifest + artifact map to reflect the trimmed set."""
+    data = _authorize_job(job_id, user, "user_id,artifacts,clip_id")
+    artifacts = data.get("artifacts") or {}
+    sfx = artifacts.get("sfx") or {}
+    items = sfx.get("items") or []
+    if not items:
+        return {"kept": [], "deleted": []}
+
+    keep = set(body.keep_ids)
+    storage = get_storage()
+    kept: list[dict] = []
+    deleted: list[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if item.get("id") in keep:
+            kept.append(item)
+            continue
+        key = item.get("key")
+        if not isinstance(key, str):
+            continue
+        try:
+            storage.delete(key)
+            deleted.append(key)
+        except Exception as e:
+            logging.getLogger(__name__).warning("sfx delete failed (%s): %s", key, e)
+
+    # Rewrite the manifest on storage so future artifact listings see only kept.
+    manifest_key = sfx.get("manifest") or f"{job_id}/sfx/manifest.json"
+    try:
+        storage.put_bytes(
+            json.dumps({"items": kept}, indent=2).encode("utf-8"),
+            manifest_key,
+            content_type="application/json",
+        )
+    except Exception as e:
+        logging.getLogger(__name__).warning("sfx manifest rewrite failed: %s", e)
+
+    # Sync artifact maps on both jobs and (if linked) clips.
+    new_artifacts = dict(artifacts)
+    new_artifacts["sfx"] = {"manifest": manifest_key, "items": kept}
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        get_supabase().table("jobs").update(
+            {"artifacts": new_artifacts, "updated_at": now}
+        ).eq("id", job_id).execute()
+    except Exception as e:
+        logging.getLogger(__name__).warning("jobs.artifacts update failed: %s", e)
+    clip_id = data.get("clip_id")
+    if clip_id:
+        try:
+            get_supabase().table("clips").update(
+                {"artifacts": new_artifacts, "updated_at": now}
+            ).eq("id", clip_id).execute()
+        except Exception as e:
+            logging.getLogger(__name__).warning("clips.artifacts update failed: %s", e)
+
+    return {"kept": kept, "deleted": deleted}
