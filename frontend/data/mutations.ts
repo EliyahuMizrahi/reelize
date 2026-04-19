@@ -4,6 +4,7 @@
 
 import { supabase } from '@/lib/supabase';
 import { palette } from '@/constants/tokens';
+import { generate as apiGenerate } from '@/services/api';
 import type { Insert, Row, Update } from '@/types/supabase';
 
 // ---------- auth helper ----------
@@ -319,45 +320,31 @@ export async function deleteTemplate(id: string): Promise<void> {
 }
 
 /**
- * Stub. Creates a clip row seeded from a template's manifests and flips it
- * to 'generating'. Real video synthesis isn't wired up yet — the caller
- * navigates to the generation screen, which renders the theatrical timeline
- * and (currently) leaves the clip in 'generating' until the backend worker
- * exists.
+ * Kick off a template-driven generation job on the backend.
+ *
+ * The backend now owns both the clip row and job row for the generate path
+ * — we POST `/generate` with the template + topic context and get back the
+ * `{ clipId, jobId }` pair the generation screen subscribes to.
+ *
+ * `classId` is optional; when omitted the server falls back to the template's
+ * own `class_id`. `topic` is the natural-language prompt ("Pythagorean
+ * theorem"), distinct from `title` which is the displayed clip name.
  */
 export async function generateClipFromTemplate(input: {
   templateId: string;
   topicId: string;
   title: string;
-}): Promise<Row<'clips'>> {
-  const user_id = await requireUserId();
-
-  const { data: tpl, error: te } = await supabase
-    .from('templates')
-    .select('*')
-    .eq('id', input.templateId)
-    .maybeSingle();
-  if (te) throw te;
-  if (!tpl) throw new Error(`Template ${input.templateId} not found`);
-
-  const payload: Insert<'clips'> = {
-    user_id,
-    topic_id: input.topicId,
-    template_id: tpl.id,
+  topic: string;
+  classId?: string | null;
+}): Promise<{ clipId: string; jobId: string }> {
+  const res = await apiGenerate({
+    templateId: input.templateId,
+    topicId: input.topicId,
+    classId: input.classId ?? null,
     title: input.title.trim(),
-    duration_s: tpl.duration_s != null ? Math.round(Number(tpl.duration_s)) : null,
-    thumbnail_color: tpl.thumbnail_color ?? palette.tealDeep,
-    style_dna: tpl.style_dna,
-    status: 'generating',
-  };
-
-  const { data, error } = await supabase
-    .from('clips')
-    .insert(payload)
-    .select()
-    .single();
-  if (error) throw error;
-  return data;
+    topic: input.topic.trim(),
+  });
+  return { clipId: res.clip_id, jobId: res.job_id };
 }
 
 // ---------- Activity ----------

@@ -1248,6 +1248,7 @@ function NewClipModal({
   const list = templates ?? [];
 
   const [pickedId, setPickedId] = useState<string | null>(null);
+  const [topic, setTopic] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -1255,31 +1256,42 @@ function NewClipModal({
   useEffect(() => {
     if (!open) return;
     setPickedId(null);
+    setTopic('');
     setBusy(false);
     setErr(null);
   }, [open, activeClass?.id]);
 
   const picked = list.find((t) => t.id === pickedId) ?? null;
+  const topicTrimmed = topic.trim();
+  const canGenerate = !!activeClass && !!picked && topicTrimmed.length >= 2;
 
   const onGenerate = async () => {
-    if (!activeClass || !picked) return;
+    if (!activeClass || !picked || topicTrimmed.length < 2) return;
     setBusy(true);
     setErr(null);
     try {
       const { topicId } = await ensureTopicInClass(activeClass.id);
-      const clip = await generateClipFromTemplate({
+      const title = topicTrimmed;
+      const { clipId, jobId } = await generateClipFromTemplate({
         templateId: picked.id,
         topicId,
-        title: picked.name,
+        classId: activeClass.id,
+        title,
+        topic: topicTrimmed,
       });
       if (Platform.OS !== 'web') {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
       }
       onClose();
-      // Real video generation is not wired up yet — we hand off to the
-      // player, which renders the 'generating' status gracefully so the
-      // user sees the clip they just queued.
-      router.push(`/player/${clip.id}` as any);
+      router.push({
+        pathname: '/create/generation',
+        params: {
+          clipId,
+          jobId,
+          topic: topicTrimmed,
+          fromTemplate: '1',
+        },
+      } as any);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
       setBusy(false);
@@ -1380,14 +1392,23 @@ function NewClipModal({
             </ScrollView>
           )}
 
-          {err ? <MonoSm color={palette.alert}>{err}</MonoSm> : null}
-
           {picked ? (
-            <MonoSm muted>
-              Generation isn't wired to video synthesis yet — the clip will sit
-              in 'generating' until the backend pipeline lands.
-            </MonoSm>
+            <View style={{ gap: 6 }}>
+              <Overline muted>TOPIC</Overline>
+              <TextField
+                font="serif"
+                placeholder="e.g. Pythagorean theorem"
+                value={topic}
+                onChangeText={setTopic}
+                autoFocus
+              />
+              <MonoSm muted>
+                The backend rewrites the template's script around this topic.
+              </MonoSm>
+            </View>
           ) : null}
+
+          {err ? <MonoSm color={palette.alert}>{err}</MonoSm> : null}
 
           <View
             style={{
@@ -1409,7 +1430,7 @@ function NewClipModal({
               size="md"
               title={busy ? 'Queuing…' : 'Generate'}
               onPress={onGenerate}
-              disabled={!picked || busy}
+              disabled={!canGenerate || busy}
             />
           </View>
         </Pressable>

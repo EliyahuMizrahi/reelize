@@ -29,3 +29,13 @@ tmp/
 clips/
 ffmpeg_shared/
 ffmpeg_shared.zip
+
+# Background footage library — binaries, not source
+backend/assets/bg_footage/**
+!backend/assets/bg_footage/.gitkeep
+!backend/assets/bg_footage/README.md
+
+# Remotion render cache
+backend/remotion/node_modules/
+backend/remotion/.cache/
+backend/remotion/out/
