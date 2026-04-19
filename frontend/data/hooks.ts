@@ -19,6 +19,7 @@ import {
   fetchTopic,
   fetchTopicsForClass,
   type ClassWithCounts,
+  type ClipWithClass,
   type TopicWithClipCount,
 } from '@/data/queries';
 import { supabase } from '@/lib/supabase';
@@ -248,8 +249,8 @@ export function useClipsForClass(
   return result;
 }
 
-export function useClip(id: string | undefined): AsyncResult<Row<'clips'>> {
-  const result = useAsync<Row<'clips'> | null>(
+export function useClip(id: string | undefined): AsyncResult<ClipWithClass> {
+  const result = useAsync<ClipWithClass | null>(
     () => {
       if (!id) return Promise.resolve(null);
       return fetchClip(id);
@@ -260,7 +261,7 @@ export function useClip(id: string | undefined): AsyncResult<Row<'clips'>> {
     result.refresh as () => void,
     id ? `id=eq.${id}` : undefined,
   );
-  return result as AsyncResult<Row<'clips'>>;
+  return result as AsyncResult<ClipWithClass>;
 }
 
 export function useTemplatesForClass(

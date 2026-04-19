@@ -12,6 +12,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
+import * as ImagePicker from 'expo-image-picker';
 import Svg, { Path } from 'react-native-svg';
 
 import { Screen, ScreenContent } from '@/components/ui/Screen';
@@ -21,24 +22,20 @@ import { TextField } from '@/components/ui/TextField';
 import {
   BodySm,
   Display2,
-  BodyLg,
   Mono,
   MonoSm,
-  Overline,
   Text,
   Title,
-  TitleSm,
 } from '@/components/ui/Text';
 import { Noctis } from '@/components/brand/Noctis';
-import { ENTER, stagger } from '@/components/ui/motion';
+import { ENTER } from '@/components/ui/motion';
 import { useAppTheme } from '@/contexts/ThemeContext';
 import { palette, radii, spacing, motion } from '@/constants/tokens';
-import { useFeed } from '@/data/hooks';
 import { clearActiveJob, getActiveJob, setActiveJob } from '@/lib/activeJob';
+import { setPendingUpload } from '@/lib/pendingUpload';
 import { getJob, listJobs } from '@/services/api';
-import type { Row } from '@/types/supabase';
 
-type Tab = 'url' | 'roll' | 'recents';
+type Tab = 'url' | 'roll';
 
 type SourcePlatform = 'TikTok' | 'Instagram' | 'YouTube';
 
@@ -124,7 +121,6 @@ function TabSwitcher({
   const TABS: { id: Tab; label: string }[] = [
     { id: 'url', label: 'Paste URL' },
     { id: 'roll', label: 'Camera Roll' },
-    { id: 'recents', label: 'Recents' },
   ];
   return (
     <View
@@ -302,109 +298,139 @@ function PasteUrlTab({ onReady }: { onReady: (url: string) => void }) {
 
 /* --- Camera Roll Tab --- */
 
-function CameraRollTab({ onReady }: { onReady: (url: string) => void }) {
-  // Not wired yet — will be replaced with an expo-image-picker flow once
-  // we add upload support to /analyze on the frontend. Parent gets an empty
-  // URL so the Deconstruct button stays disabled while this tab is active.
-  useEffect(() => {
-    onReady('');
-  }, [onReady]);
-  return (
-    <View style={{ marginTop: spacing['2xl'], alignItems: 'center', gap: spacing.md }}>
-      <MonoSm muted>Camera roll upload isn't wired up yet.</MonoSm>
-      <MonoSm muted>Paste a URL for now.</MonoSm>
-    </View>
-  );
-}
+type PickedVideo = {
+  uri: string;
+  name: string;
+  type: string;
+  durationMs?: number | null;
+};
 
-/* --- Recents Tab --- */
-
-function RecentCard({
-  topic,
-  className,
-  classColor,
-  creator,
-  duration,
-  index,
-  onPress,
+function CameraRollTab({
+  picked,
+  onPicked,
 }: {
-  topic: string;
-  className: string;
-  classColor: string;
-  creator: string;
-  duration: string;
-  index: number;
-  onPress: () => void;
+  picked: PickedVideo | null;
+  onPicked: (v: PickedVideo | null) => void;
 }) {
   const { colors } = useAppTheme();
-  return (
-    <Animated.View entering={ENTER.fadeUp(stagger(index, 60))}>
-      <Pressable onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}>
-        <Surface elevation="card" radius="lg" style={{ padding: spacing.lg, gap: 10 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <View
-                style={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: 3,
-                  backgroundColor: classColor,
-                }}
-              />
-              <Text variant="caption" weight="semibold" upper color={classColor} style={{ letterSpacing: 1.4 }}>
-                {className}
-              </Text>
-            </View>
-            <Mono muted>{duration}</Mono>
-          </View>
-          <TitleSm>{topic}</TitleSm>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            <MonoSm muted>{creator}</MonoSm>
-            <Text variant="caption" muted style={{ letterSpacing: 0.8 }}>
-              tap to re-deconstruct →
-            </Text>
-          </View>
-        </Surface>
-      </Pressable>
-    </Animated.View>
-  );
-}
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
-function RecentsTab({ onPick }: { onPick: (url: string) => void }) {
-  const { data } = useFeed(5);
-  const items = (data ?? []) as Row<'clips'>[];
+  const pick = async () => {
+    setErr(null);
+    setBusy(true);
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) {
+        setErr('Camera roll permission is required.');
+        return;
+      }
+      const res = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+        allowsMultipleSelection: false,
+        quality: 1,
+        videoMaxDuration: 180,
+      });
+      if (res.canceled || !res.assets?.[0]) return;
+      const a = res.assets[0];
+      const uri = a.uri;
+      const nameFromAsset = (a as any).fileName as string | undefined;
+      const guessed = (() => {
+        const tail = uri.split('/').pop() ?? 'video.mp4';
+        return tail.includes('.') ? tail : `${tail}.mp4`;
+      })();
+      const name = nameFromAsset || guessed;
+      const mime = (a as any).mimeType as string | undefined;
+      const extFromName = name.toLowerCase().split('.').pop() ?? 'mp4';
+      const type =
+        mime ||
+        (extFromName === 'mov'
+          ? 'video/quicktime'
+          : extFromName === 'webm'
+            ? 'video/webm'
+            : 'video/mp4');
+      onPicked({
+        uri,
+        name,
+        type,
+        durationMs: (a as any).duration ?? null,
+      });
+      if (Platform.OS !== 'web') {
+        Haptics.selectionAsync().catch(() => {});
+      }
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
 
-  if (items.length === 0) {
-    return (
-      <View style={{ marginTop: spacing['2xl'], gap: spacing.md }}>
-        <Overline muted>Last 5 sources</Overline>
-        <MonoSm muted>nothing here yet — paste your first reel.</MonoSm>
-      </View>
-    );
-  }
-
-  function fmt(s: number | null | undefined): string {
-    const sec = Math.max(0, Math.round(s ?? 0));
+  const durationLabel = (() => {
+    const ms = picked?.durationMs ?? 0;
+    if (!ms) return null;
+    const sec = Math.max(0, Math.round(ms / 1000));
     const m = Math.floor(sec / 60);
     const r = sec % 60;
     return `${m}:${r.toString().padStart(2, '0')}`;
-  }
+  })();
 
   return (
-    <View style={{ marginTop: spacing['2xl'], gap: spacing.md }}>
-      <Overline muted>Last 5 sources</Overline>
-      {items.map((c, i) => (
-        <RecentCard
-          key={c.id}
-          index={i}
-          topic={c.title}
-          className="Class"
-          classColor={palette.sage}
-          creator={c.source_creator ?? '@source'}
-          duration={fmt(c.duration_s)}
-          onPress={() => onPick('recent://' + c.id)}
-        />
-      ))}
+    <View style={{ marginTop: spacing['2xl'], gap: spacing.lg }}>
+      <Button
+        variant={picked ? 'tertiary' : 'shimmer'}
+        size="lg"
+        title={busy ? 'Opening…' : picked ? 'Pick a different video' : 'Choose video from library'}
+        leading={<Feather name="film" size={16} color={picked ? (colors.text as string) : palette.ink} />}
+        onPress={pick}
+        disabled={busy}
+        fullWidth
+      />
+      {picked ? (
+        <Surface
+          elevation="card"
+          radius="xl"
+          style={{ flexDirection: 'row', gap: spacing.lg, padding: spacing.lg, alignItems: 'center' }}
+        >
+          <View
+            style={{
+              width: 56,
+              height: 56,
+              borderRadius: radii.md,
+              backgroundColor: colors.elevated as string,
+              borderWidth: 1,
+              borderColor: colors.border as string,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Feather name="video" size={22} color={colors.primary as string} />
+          </View>
+          <View style={{ flex: 1, gap: 4 }}>
+            <Text variant="bodySm" weight="semibold" numberOfLines={1}>
+              {picked.name}
+            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <MonoSm muted>{picked.type}</MonoSm>
+              {durationLabel ? <Mono muted>· {durationLabel}</Mono> : null}
+            </View>
+          </View>
+          <Pressable
+            onPress={() => onPicked(null)}
+            hitSlop={8}
+            accessibilityLabel="Clear picked video"
+            style={({ pressed }) => ({
+              padding: 8,
+              borderRadius: radii.md,
+              opacity: pressed ? 0.6 : 1,
+            })}
+          >
+            <Feather name="x" size={16} color={colors.mutedText as string} />
+          </Pressable>
+        </Surface>
+      ) : (
+        <MonoSm muted>MP4, MOV, M4V, or WebM up to 3 minutes.</MonoSm>
+      )}
+      {err ? <MonoSm color={palette.alert}>{err}</MonoSm> : null}
     </View>
   );
 }
@@ -417,6 +443,7 @@ export default function CreateScreen() {
   const params = useLocalSearchParams<{ templateSaved?: string }>();
   const [tab, setTab] = useState<Tab>('url');
   const [activeUrl, setActiveUrl] = useState('');
+  const [pickedVideo, setPickedVideo] = useState<PickedVideo | null>(null);
   const [templateSavedOpen, setTemplateSavedOpen] = useState(false);
 
   useEffect(() => {
@@ -528,21 +555,28 @@ export default function CreateScreen() {
     transform: [{ translateY: noctisFloat.value }],
   }));
 
-  const ready = activeUrl.trim().length > 6 && detectPlatform(activeUrl) !== null;
+  const urlReady =
+    activeUrl.trim().length > 6 && detectPlatform(activeUrl) !== null;
+  const uploadReady = !!pickedVideo;
+  const ready = tab === 'url' ? urlReady : uploadReady;
 
   const onDeconstruct = () => {
     if (!ready) return;
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     }
-    router.push(('/create/deconstruction?url=' + encodeURIComponent(activeUrl)) as any);
-  };
-
-  const handleRecentPick = (url: string) => {
-    if (Platform.OS !== 'web') {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    if (tab === 'roll' && pickedVideo) {
+      setPendingUpload({
+        uri: pickedVideo.uri,
+        name: pickedVideo.name,
+        type: pickedVideo.type,
+      });
+      router.push(
+        (`/create/deconstruction?upload=1&uploadName=${encodeURIComponent(pickedVideo.name)}`) as any,
+      );
+      return;
     }
-    router.push(('/create/deconstruction?url=' + encodeURIComponent(url)) as any);
+    router.push(('/create/deconstruction?url=' + encodeURIComponent(activeUrl)) as any);
   };
 
   return (
@@ -587,44 +621,36 @@ export default function CreateScreen() {
           )}
           {tab === 'roll' && (
             <Animated.View key="roll" entering={FadeIn.duration(motion.dur.normal)}>
-              <CameraRollTab onReady={setActiveUrl} />
-            </Animated.View>
-          )}
-          {tab === 'recents' && (
-            <Animated.View key="recents" entering={FadeIn.duration(motion.dur.normal)}>
-              <RecentsTab onPick={handleRecentPick} />
+              <CameraRollTab picked={pickedVideo} onPicked={setPickedVideo} />
             </Animated.View>
           )}
         </ScreenContent>
       </ScrollView>
 
-      {/* Primary Deconstruct bar — only visible on url/roll tabs */}
-      {tab !== 'recents' ? (
-        <Animated.View
-          entering={ENTER.fadeUp(0)}
-          style={{
-            position: 'absolute',
-            left: 0,
-            right: 0,
-            bottom: 0,
-            paddingHorizontal: spacing.xl,
-            paddingTop: spacing.lg,
-            paddingBottom: spacing['3xl'],
-            backgroundColor: (colors.background as string) + 'EE',
-            borderTopWidth: 1,
-            borderTopColor: colors.border as string,
-          }}
-        >
-          <Button
-            title="Deconstruct →"
-            variant={ready ? 'shimmer' : 'tertiary'}
-            size="lg"
-            fullWidth
-            disabled={!ready}
-            onPress={onDeconstruct}
-          />
-        </Animated.View>
-      ) : null}
+      <Animated.View
+        entering={ENTER.fadeUp(0)}
+        style={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          bottom: 0,
+          paddingHorizontal: spacing.xl,
+          paddingTop: spacing.lg,
+          paddingBottom: spacing['3xl'],
+          backgroundColor: (colors.background as string) + 'EE',
+          borderTopWidth: 1,
+          borderTopColor: colors.border as string,
+        }}
+      >
+        <Button
+          title="Deconstruct →"
+          variant={ready ? 'shimmer' : 'tertiary'}
+          size="lg"
+          fullWidth
+          disabled={!ready}
+          onPress={onDeconstruct}
+        />
+      </Animated.View>
 
       <TemplateSavedModal
         open={templateSavedOpen}

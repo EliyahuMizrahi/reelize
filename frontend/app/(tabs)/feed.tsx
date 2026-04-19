@@ -77,7 +77,7 @@ function toFeedClip(row: Row<'clips'>): FeedClip {
   return {
     id: row.id,
     topic: row.title,
-    className: 'Class',
+    className: 'Shelf',
     classColor: palette.sage,
     sourceCreator: row.source_creator ?? '@source',
     sourceDuration: fmtDuration(row.duration_s),

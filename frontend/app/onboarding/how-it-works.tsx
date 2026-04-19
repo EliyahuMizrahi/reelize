@@ -44,7 +44,7 @@ const STEPS: Step[] = [
   {
     number: '03',
     title: 'Get a lesson in its language.',
-    body: 'Thirty seconds. Same pacing. Same voice energy. Saved privately to your shelf — no feed, no social layer, just you and the topic.',
+    body: 'Thirty seconds. Same pacing. Same voice energy. Saved privately to your shelf — no feed, no social layer, just you and the disc.',
     pullQuote: 'Study at its speed.',
   },
 ];

@@ -140,16 +140,16 @@ export default function FirstClassScreen() {
       >
         <View style={{ width: '100%', maxWidth: 960, ...(isWeb ? { alignSelf: 'center' } : {}) }}>
         <Animated.View entering={ENTER.fadeUp(60)}>
-          <Overline color={palette.sage}>Chapter 02 · First class</Overline>
+          <Overline color={palette.sage}>Chapter 02 · First shelf</Overline>
         </Animated.View>
 
         <Animated.View entering={ENTER.fadeUpSlow(200)} style={{ marginTop: spacing.lg, maxWidth: 520 }}>
-          <Headline color={palette.mist}>Pick your first class.</Headline>
+          <Headline color={palette.mist}>Pick your first shelf.</Headline>
         </Animated.View>
 
         <Animated.View entering={ENTER.fadeUp(360)} style={{ marginTop: spacing.md, maxWidth: 520 }}>
           <Body color={palette.fog} italic>
-            A shelf starts with one topic. You can add more any time — the library grows with you.
+            A shelf starts with one disc. You can add more any time — the library grows with you.
           </Body>
         </Animated.View>
 

@@ -1,0 +1,1053 @@
+{
+  "schema_version": 1,
+  "fps": 30,
+  "width": 1080,
+  "height": 1920,
+  "duration_s": 64.0,
+  "bg": {
+    "src": "bg.mp4",
+    "trim_in": 0.36666666666666664,
+    "category": "subway_surfers"
+  },
+  "audio": [
+    {
+      "src": "tts/turn_00.mp3",
+      "start": 1.3666666666666667,
+      "end": 5.133333333333334,
+      "speaker": "SPEAKER_02",
+      "trim_in": 0,
+      "volume": 1.0
+    },
+    {
+      "src": "tts/turn_01.mp3",
+      "start": 5.266666666666667,
+      "end": 7.733333333333333,
+      "speaker": "SPEAKER_02",
+      "trim_in": 0,
+      "volume": 1.0
+    },
+    {
+      "src": "tts/turn_02.mp3",
+      "start": 8.533333333333333,
+      "end": 9.966666666666667,
+      "speaker": "SPEAKER_03",
+      "trim_in": 0,
+      "volume": 1.0
+    },
+    {
+      "src": "tts/turn_03.mp3",
+      "start": 10.833333333333334,
+      "end": 13.566666666666666,
+      "speaker": "SPEAKER_03",
+      "trim_in": 0,
+      "volume": 1.0
+    },
+    {
+      "src": "tts/turn_04.mp3",
+      "start": 14.0,
+      "end": 15.1,
+      "speaker": "SPEAKER_03",
+      "trim_in": 0,
+      "volume": 1.0
+    },
+    {
+      "src": "tts/turn_05.mp3",
+      "start": 15.333333333333334,
+      "end": 17.233333333333334,
+      "speaker": "SPEAKER_03",
+      "trim_in": 0,
+      "volume": 1.0
+    },
+    {
+      "src": "tts/turn_06.mp3",
+      "start": 17.966666666666665,
+      "end": 19.533333333333335,
+      "speaker": "SPEAKER_03",
+      "trim_in": 0,
+      "volume": 1.0
+    },
+    {
+      "src": "tts/turn_07.mp3",
+      "start": 20.2,
+      "end": 23.366666666666667,
+      "speaker": "SPEAKER_03",
+      "trim_in": 0,
+      "volume": 1.0
+    },
+    {
+      "src": "tts/turn_08.mp3",
+      "start": 25.233333333333334,
+      "end": 26.8,
+      "speaker": "SPEAKER_01",
+      "trim_in": 0,
+      "volume": 1.0
+    },
+    {
+      "src": "tts/turn_16.mp3",
+      "start": 27.1,
+      "end": 27.933333333333334,
+      "speaker": "SPEAKER_00",
+      "trim_in": 0,
+      "volume": 1.0
+    },
+    {
+      "src": "tts/turn_09.mp3",
+      "start": 29.366666666666667,
+      "end": 32.4,
+      "speaker": "SPEAKER_01",
+      "trim_in": 0,
+      "volume": 1.0
+    },
+    {
+      "src": "tts/turn_10.mp3",
+      "start": 32.833333333333336,
+      "end": 35.06666666666667,
+      "speaker": "SPEAKER_01",
+      "trim_in": 0,
+      "volume": 1.0
+    },
+    {
+      "src": "tts/turn_17.mp3",
+      "start": 36.6,
+      "end": 37.46666666666667,
+      "speaker": "SPEAKER_00",
+      "trim_in": 0,
+      "volume": 1.0
+    },
+    {
+      "src": "tts/turn_11.mp3",
+      "start": 38.86666666666667,
+      "end": 42.166666666666664,
+      "speaker": "SPEAKER_01",
+      "trim_in": 0,
+      "volume": 1.0
+    },
+    {
+      "src": "tts/turn_18.mp3",
+      "start": 43.3,
+      "end": 44.03333333333333,
+      "speaker": "SPEAKER_00",
+      "trim_in": 0,
+      "volume": 1.0
+    },
+    {
+      "src": "tts/turn_12.mp3",
+      "start": 45.36666666666667,
+      "end": 48.233333333333334,
+      "speaker": "SPEAKER_01",
+      "trim_in": 0,
+      "volume": 1.0
+    },
+    {
+      "src": "tts/turn_19.mp3",
+      "start": 49.63333333333333,
+      "end": 50.43333333333333,
+      "speaker": "SPEAKER_00",
+      "trim_in": 0,
+      "volume": 1.0
+    },
+    {
+      "src": "tts/turn_13.mp3",
+      "start": 51.46666666666667,
+      "end": 52.266666666666666,
+      "speaker": "SPEAKER_00",
+      "trim_in": 0,
+      "volume": 1.0
+    },
+    {
+      "src": "tts/turn_14.mp3",
+      "start": 55.13333333333333,
+      "end": 57.233333333333334,
+      "speaker": "SPEAKER_01",
+      "trim_in": 0,
+      "volume": 1.0
+    },
+    {
+      "src": "tts/turn_15.mp3",
+      "start": 59.93333333333333,
+      "end": 61.666666666666664,
+      "speaker": "SPEAKER_00",
+      "trim_in": 0,
+      "volume": 1.0
+    },
+    {
+      "src": "music/background.opus",
+      "start": 49.7,
+      "end": 51.6,
+      "trim_in": 49.93333333333333,
+      "volume": 0.18,
+      "speaker": "music_0"
+    },
+    {
+      "src": "music/background.opus",
+      "start": 52.03333333333333,
+      "end": 63.833333333333336,
+      "trim_in": 52.3,
+      "volume": 0.18,
+      "speaker": "music_1"
+    }
+  ],
+  "captions": [
+    {
+      "text": "Imagine you're a\nrouter. Fifteen",
+      "start": 1.3666666666666667,
+      "end": 3.2666666666666666,
+      "style": {
+        "font_feel": "impact-bold",
+        "weight": 800,
+        "size": 104,
+        "color": "#FFFFFF",
+        "stroke_color": "#000000",
+        "stroke_width_px": 3,
+        "position": "middle",
+        "animation": "pop",
+        "case": "mixed",
+        "background": null
+      }
+    },
+    {
+      "text": "devices in your house\nall want the internet.",
+      "start": 3.2666666666666666,
+      "end": 5.133333333333334,
+      "style": {
+        "font_feel": "impact-bold",
+        "weight": 800,
+        "size": 104,
+        "color": "#FFFFFF",
+        "stroke_color": "#000000",
+        "stroke_width_px": 3,
+        "position": "middle",
+        "animation": "pop",
+        "case": "mixed",
+        "background": null
+      }
+    },
+    {
+      "text": "Do you give every\nphone its own public",
+      "start": 5.266666666666667,
+      "end": 6.5,
+      "style": {
+        "font_feel": "impact-bold",
+        "weight": 800,
+        "size": 104,
+        "color": "#FFFFFF",
+        "stroke_color": "#000000",
+        "stroke_width_px": 3,
+        "position": "middle",
+        "animation": "pop",
+        "case": "mixed",
+        "background": null
+      }
+    },
+    {
+      "text": "IP address?",
+      "start": 6.5,
+      "end": 7.733333333333333,
+      "style": {
+        "font_feel": "impact-bold",
+        "weight": 800,
+        "size": 104,
+        "color": "#FFFFFF",
+        "stroke_color": "#000000",
+        "stroke_width_px": 3,
+        "position": "middle",
+        "animation": "pop",
+        "case": "mixed",
+        "background": null
+      }
+    },
+    {
+      "text": "No. That doesn't\nscale.",
+      "start": 8.533333333333333,
+      "end": 9.966666666666667,
+      "style": {
+        "font_feel": "impact-bold",
+        "weight": 800,
+        "size": 104,
+        "color": "#FFFFFF",
+        "stroke_color": "#000000",
+        "stroke_width_px": 3,
+        "position": "middle",
+        "animation": "pop",
+        "case": "mixed",
+        "background": null
+      }
+    },
+    {
+      "text": "IPv4 only has four\nbillion addresses, and",
+      "start": 10.833333333333334,
+      "end": 12.2,
+      "style": {
+        "font_feel": "impact-bold",
+        "weight": 800,
+        "size": 104,
+        "color": "#FFFFFF",
+        "stroke_color": "#000000",
+        "stroke_width_px": 3,
+        "position": "middle",
+        "animation": "pop",
+        "case": "mixed",
+        "background": null
+      }
+    },
+    {
+      "text": "we've already run out.",
+      "start": 12.2,
+      "end": 13.566666666666666,
+      "style": {
+        "font_feel": "impact-bold",
+        "weight": 800,
+        "size": 104,
+        "color": "#FFFFFF",
+        "stroke_color": "#000000",
+        "stroke_width_px": 3,
+        "position": "middle",
+        "animation": "pop",
+        "case": "mixed",
+        "background": null
+      }
+    },
+    {
+      "text": "It's impossible.",
+      "start": 14.0,
+      "end": 15.1,
+      "style": {
+        "font_feel": "impact-bold",
+        "weight": 800,
+        "size": 104,
+        "color": "#FFFFFF",
+        "stroke_color": "#000000",
+        "stroke_width_px": 3,
+        "position": "middle",
+        "animation": "pop",
+        "case": "mixed",
+        "background": null
+      }
+    },
+    {
+      "text": "Every device would\nneed a global slot.",
+      "start": 15.333333333333334,
+      "end": 17.233333333333334,
+      "style": {
+        "font_feel": "impact-bold",
+        "weight": 800,
+        "size": 104,
+        "color": "#FFFFFF",
+        "stroke_color": "#000000",
+        "stroke_width_px": 3,
+        "position": "middle",
+        "animation": "pop",
+        "case": "mixed",
+        "background": null
+      }
+    },
+    {
+      "text": "Better to share one\npublic IP.",
+      "start": 17.966666666666665,
+      "end": 19.533333333333335,
+      "style": {
+        "font_feel": "impact-bold",
+        "weight": 800,
+        "size": 104,
+        "color": "#FFFFFF",
+        "stroke_color": "#000000",
+        "stroke_width_px": 3,
+        "position": "middle",
+        "animation": "pop",
+        "case": "mixed",
+        "background": null
+      }
+    },
+    {
+      "text": "And rewrite the source\naddress on the way",
+      "start": 20.2,
+      "end": 21.8,
+      "style": {
+        "font_feel": "impact-bold",
+        "weight": 800,
+        "size": 104,
+        "color": "#FFFFFF",
+        "stroke_color": "#000000",
+        "stroke_width_px": 3,
+        "position": "middle",
+        "animation": "pop",
+        "case": "mixed",
+        "background": null
+      }
+    },
+    {
+      "text": "out, so replies still\nfind home.",
+      "start": 21.8,
+      "end": 23.366666666666667,
+      "style": {
+        "font_feel": "impact-bold",
+        "weight": 800,
+        "size": 104,
+        "color": "#FFFFFF",
+        "stroke_color": "#000000",
+        "stroke_width_px": 3,
+        "position": "middle",
+        "animation": "pop",
+        "case": "mixed",
+        "background": null
+      }
+    },
+    {
+      "text": "Network Address\nTranslation.",
+      "start": 25.233333333333334,
+      "end": 26.8,
+      "style": {
+        "font_feel": "impact-bold",
+        "weight": 800,
+        "size": 104,
+        "color": "#FFFFFF",
+        "stroke_color": "#000000",
+        "stroke_width_px": 3,
+        "position": "middle",
+        "animation": "pop",
+        "case": "mixed",
+        "background": null
+      }
+    },
+    {
+      "text": "One IP.",
+      "start": 27.1,
+      "end": 27.933333333333334,
+      "style": {
+        "font_feel": "impact-bold",
+        "weight": 800,
+        "size": 104,
+        "color": "#FFFFFF",
+        "stroke_color": "#000000",
+        "stroke_width_px": 3,
+        "position": "middle",
+        "animation": "pop",
+        "case": "mixed",
+        "background": null
+      }
+    },
+    {
+      "text": "Every private IP gets\nswapped for my public",
+      "start": 29.366666666666667,
+      "end": 30.866666666666667,
+      "style": {
+        "font_feel": "impact-bold",
+        "weight": 800,
+        "size": 104,
+        "color": "#FFFFFF",
+        "stroke_color": "#000000",
+        "stroke_width_px": 3,
+        "position": "middle",
+        "animation": "pop",
+        "case": "mixed",
+        "background": null
+      }
+    },
+    {
+      "text": "one on the way out.",
+      "start": 30.866666666666667,
+      "end": 32.4,
+      "style": {
+        "font_feel": "impact-bold",
+        "weight": 800,
+        "size": 104,
+        "color": "#FFFFFF",
+        "stroke_color": "#000000",
+        "stroke_width_px": 3,
+        "position": "middle",
+        "animation": "pop",
+        "case": "mixed",
+        "background": null
+      }
+    },
+    {
+      "text": "I log the source port\nso replies come back",
+      "start": 32.833333333333336,
+      "end": 33.96666666666667,
+      "style": {
+        "font_feel": "impact-bold",
+        "weight": 800,
+        "size": 104,
+        "color": "#FFFFFF",
+        "stroke_color": "#000000",
+        "stroke_width_px": 3,
+        "position": "middle",
+        "animation": "pop",
+        "case": "mixed",
+        "background": null
+      }
+    },
+    {
+      "text": "right.",
+      "start": 33.96666666666667,
+      "end": 35.06666666666667,
+      "style": {
+        "font_feel": "impact-bold",
+        "weight": 800,
+        "size": 104,
+        "color": "#FFFFFF",
+        "stroke_color": "#000000",
+        "stroke_width_px": 3,
+        "position": "middle",
+        "animation": "pop",
+        "case": "mixed",
+        "background": null
+      }
+    },
+    {
+      "text": "Rewritten.",
+      "start": 36.6,
+      "end": 37.46666666666667,
+      "style": {
+        "font_feel": "impact-bold",
+        "weight": 800,
+        "size": 104,
+        "color": "#FFFFFF",
+        "stroke_color": "#000000",
+        "stroke_width_px": 3,
+        "position": "middle",
+        "animation": "pop",
+        "case": "mixed",
+        "background": null
+      }
+    },
+    {
+      "text": "One public IP. A\nhundred devices behind",
+      "start": 38.86666666666667,
+      "end": 40.53333333333333,
+      "style": {
+        "font_feel": "impact-bold",
+        "weight": 800,
+        "size": 104,
+        "color": "#FFFFFF",
+        "stroke_color": "#000000",
+        "stroke_width_px": 3,
+        "position": "middle",
+        "animation": "pop",
+        "case": "mixed",
+        "background": null
+      }
+    },
+    {
+      "text": "it. All online at\nonce.",
+      "start": 40.53333333333333,
+      "end": 42.166666666666664,
+      "style": {
+        "font_feel": "impact-bold",
+        "weight": 800,
+        "size": 104,
+        "color": "#FFFFFF",
+        "stroke_color": "#000000",
+        "stroke_width_px": 3,
+        "position": "middle",
+        "animation": "pop",
+        "case": "mixed",
+        "background": null
+      }
+    },
+    {
+      "text": "Shared.",
+      "start": 43.3,
+      "end": 44.03333333333333,
+      "style": {
+        "font_feel": "impact-bold",
+        "weight": 800,
+        "size": 104,
+        "color": "#FFFFFF",
+        "stroke_color": "#000000",
+        "stroke_width_px": 3,
+        "position": "middle",
+        "animation": "pop",
+        "case": "mixed",
+        "background": null
+      }
+    },
+    {
+      "text": "A reply hits my port.\nI find the owner. I",
+      "start": 45.36666666666667,
+      "end": 46.8,
+      "style": {
+        "font_feel": "impact-bold",
+        "weight": 800,
+        "size": 104,
+        "color": "#FFFFFF",
+        "stroke_color": "#000000",
+        "stroke_width_px": 3,
+        "position": "middle",
+        "animation": "pop",
+        "case": "mixed",
+        "background": null
+      }
+    },
+    {
+      "text": "send it home.",
+      "start": 46.8,
+      "end": 48.233333333333334,
+      "style": {
+        "font_feel": "impact-bold",
+        "weight": 800,
+        "size": 104,
+        "color": "#FFFFFF",
+        "stroke_color": "#000000",
+        "stroke_width_px": 3,
+        "position": "middle",
+        "animation": "pop",
+        "case": "mixed",
+        "background": null
+      }
+    },
+    {
+      "text": "Delivered.",
+      "start": 49.63333333333333,
+      "end": 50.43333333333333,
+      "style": {
+        "font_feel": "impact-bold",
+        "weight": 800,
+        "size": 104,
+        "color": "#FFFFFF",
+        "stroke_color": "#000000",
+        "stroke_width_px": 3,
+        "position": "middle",
+        "animation": "pop",
+        "case": "mixed",
+        "background": null
+      }
+    },
+    {
+      "text": "Port mapped.",
+      "start": 51.46666666666667,
+      "end": 52.266666666666666,
+      "style": {
+        "font_feel": "impact-bold",
+        "weight": 800,
+        "size": 104,
+        "color": "#FFFFFF",
+        "stroke_color": "#000000",
+        "stroke_width_px": 3,
+        "position": "middle",
+        "animation": "pop",
+        "case": "mixed",
+        "background": null
+      }
+    },
+    {
+      "text": "A whole LAN pretending\nto be one address.",
+      "start": 55.13333333333333,
+      "end": 57.233333333333334,
+      "style": {
+        "font_feel": "impact-bold",
+        "weight": 800,
+        "size": 104,
+        "color": "#FFFFFF",
+        "stroke_color": "#000000",
+        "stroke_width_px": 3,
+        "position": "middle",
+        "animation": "pop",
+        "case": "mixed",
+        "background": null
+      }
+    },
+    {
+      "text": "That's Network Address\nTranslation.",
+      "start": 59.93333333333333,
+      "end": 61.666666666666664,
+      "style": {
+        "font_feel": "impact-bold",
+        "weight": 800,
+        "size": 104,
+        "color": "#FFFFFF",
+        "stroke_color": "#000000",
+        "stroke_width_px": 3,
+        "position": "middle",
+        "animation": "pop",
+        "case": "mixed",
+        "background": null
+      }
+    }
+  ],
+  "sfx": [
+    {
+      "src": "sfx/sfx_00.wav",
+      "at": 3.466666666666667,
+      "gain": 1.0,
+      "label": null
+    },
+    {
+      "src": "sfx/sfx_01.wav",
+      "at": 25.466666666666665,
+      "gain": 0.549,
+      "label": null
+    },
+    {
+      "src": "sfx/sfx_02.wav",
+      "at": 29.0,
+      "gain": 0.624,
+      "label": null
+    },
+    {
+      "src": "sfx/sfx_03.wav",
+      "at": 32.06666666666667,
+      "gain": 0.75,
+      "label": null
+    },
+    {
+      "src": "sfx/sfx_04.wav",
+      "at": 34.333333333333336,
+      "gain": 0.691,
+      "label": null
+    },
+    {
+      "src": "sfx/sfx_05.wav",
+      "at": 39.766666666666666,
+      "gain": 0.67,
+      "label": null
+    },
+    {
+      "src": "sfx/sfx_06.wav",
+      "at": 45.43333333333333,
+      "gain": 0.719,
+      "label": null
+    },
+    {
+      "src": "sfx/sfx_07.wav",
+      "at": 47.233333333333334,
+      "gain": 0.865,
+      "label": null
+    }
+  ],
+  "effects": [
+    {
+      "type": "cut_flash",
+      "at": 0.9666666666666667,
+      "dur": 0.8
+    },
+    {
+      "type": "beat_pulse",
+      "at": 2.566666666666667,
+      "dur": 21.833333333333332
+    },
+    {
+      "type": "cut_flash",
+      "at": 24.4,
+      "dur": 1.3666666666666667
+    },
+    {
+      "type": "cut_flash",
+      "at": 25.733333333333334,
+      "dur": 1.0
+    },
+    {
+      "type": "slow_mo",
+      "at": 26.733333333333334,
+      "dur": 1.9666666666666666
+    },
+    {
+      "type": "cut_flash",
+      "at": 28.7,
+      "dur": 1.1666666666666667
+    },
+    {
+      "type": "cut_flash",
+      "at": 29.866666666666667,
+      "dur": 1.2
+    },
+    {
+      "type": "cut_flash",
+      "at": 31.066666666666666,
+      "dur": 1.2
+    },
+    {
+      "type": "cut_flash",
+      "at": 32.233333333333334,
+      "dur": 1.2
+    },
+    {
+      "type": "beat_pulse",
+      "at": 33.43333333333333,
+      "dur": 1.4333333333333333
+    },
+    {
+      "type": "slow_mo",
+      "at": 35.86666666666667,
+      "dur": 1.0
+    },
+    {
+      "type": "slow_mo",
+      "at": 36.86666666666667,
+      "dur": 2.066666666666667
+    },
+    {
+      "type": "beat_pulse",
+      "at": 38.93333333333333,
+      "dur": 0.5666666666666667
+    },
+    {
+      "type": "cut_flash",
+      "at": 39.5,
+      "dur": 1.3
+    },
+    {
+      "type": "beat_pulse",
+      "at": 40.8,
+      "dur": 1.9666666666666666
+    },
+    {
+      "type": "beat_pulse",
+      "at": 47.233333333333334,
+      "dur": 0.9
+    },
+    {
+      "type": "beat_pulse",
+      "at": 48.13333333333333,
+      "dur": 0.8666666666666667
+    },
+    {
+      "type": "cut_flash",
+      "at": 49.0,
+      "dur": 1.2666666666666666
+    },
+    {
+      "type": "beat_pulse",
+      "at": 50.266666666666666,
+      "dur": 1.5
+    },
+    {
+      "type": "zoom_in",
+      "at": 51.766666666666666,
+      "dur": 2.1
+    },
+    {
+      "type": "beat_pulse",
+      "at": 53.833333333333336,
+      "dur": 0.9666666666666667
+    },
+    {
+      "type": "slow_mo",
+      "at": 54.8,
+      "dur": 1.5333333333333334
+    },
+    {
+      "type": "cut_flash",
+      "at": 56.333333333333336,
+      "dur": 0.9
+    },
+    {
+      "type": "beat_pulse",
+      "at": 57.233333333333334,
+      "dur": 2.5
+    }
+  ],
+  "viz": [
+    {
+      "kind": "nat",
+      "start": 1.0,
+      "end": 64.0
+    }
+  ],
+  "style_dna": {
+    "hook": {},
+    "music": {
+      "file": "tmp/jobs/9df843bb-21e6-4e9c-8149-46ab84a7d1be/audio/music_sections.json",
+      "regions": [
+        [
+          49.92,
+          51.83
+        ],
+        [
+          52.29,
+          64.13
+        ]
+      ],
+      "sections": []
+    },
+    "voice": {
+      "turns": [
+        {
+          "end": 4.997,
+          "text": "Imagine you're Garen. Your entire team is dead and the enemy team is looking to end the game.",
+          "start": 1.357,
+          "speaker": "SPEAKER_02"
+        },
+        {
+          "end": 8.361,
+          "text": "Would you flash into four people to defend your base?",
+          "start": 5.297,
+          "speaker": "SPEAKER_02"
+        },
+        {
+          "end": 10.761,
+          "text": "As Garen, no, I wouldn't flash into four people there.",
+          "start": 8.561,
+          "speaker": "SPEAKER_03"
+        },
+        {
+          "end": 13.941,
+          "text": "My whole team is dead, so even if I go in, I'm not actually saving the game.",
+          "start": 10.881,
+          "speaker": "SPEAKER_03"
+        },
+        {
+          "end": 15.041,
+          "text": "I'm just dying faster.",
+          "start": 14.061,
+          "speaker": "SPEAKER_03"
+        },
+        {
+          "end": 17.901,
+          "text": "Flashing in guarantees I get focused and killed with no follow-up.",
+          "start": 15.401,
+          "speaker": "SPEAKER_03"
+        },
+        {
+          "end": 20.121,
+          "text": "I'd retreat, regroup, and wait for respawns.",
+          "start": 18.041,
+          "speaker": "SPEAKER_03"
+        },
+        {
+          "end": 25.119,
+          "text": "Better to defend with numbers than throw myself into a 1v4 and lose anyway.",
+          "start": 20.301,
+          "speaker": "SPEAKER_03"
+        },
+        {
+          "end": 26.699,
+          "text": "I'm flashing the fuck in.",
+          "start": 25.339,
+          "speaker": "SPEAKER_01"
+        },
+        {
+          "end": 28.039,
+          "text": "Love me.",
+          "start": 27.239,
+          "speaker": "UNKNOWN"
+        },
+        {
+          "end": 32.986,
+          "text": "My teammates will not respawn in time to defend with me.",
+          "start": 29.519,
+          "speaker": "SPEAKER_01"
+        },
+        {
+          "end": 36.606,
+          "text": "And I refuse to just stand here and watch them take our base.",
+          "start": 32.986,
+          "speaker": "SPEAKER_01"
+        },
+        {
+          "end": 38.146,
+          "text": "Love me.",
+          "start": 36.786,
+          "speaker": "SPEAKER_00"
+        },
+        {
+          "end": 43.184,
+          "text": "One flash to close the gap and one spin to wipe them all.",
+          "start": 39.046,
+          "speaker": "SPEAKER_01"
+        },
+        {
+          "end": 44.584,
+          "text": "Love me.",
+          "start": 43.504,
+          "speaker": "SPEAKER_00"
+        },
+        {
+          "end": 49.549,
+          "text": "If the game ends here, it ends on my terms.",
+          "start": 45.584,
+          "speaker": "SPEAKER_01"
+        },
+        {
+          "end": 51.109,
+          "text": "Love me.",
+          "start": 49.869,
+          "speaker": "SPEAKER_00"
+        },
+        {
+          "end": 52.689,
+          "text": "I'll make this.",
+          "start": 51.709,
+          "speaker": "SPEAKER_00"
+        },
+        {
+          "end": 53.909,
+          "text": "Love me.",
+          "start": 52.869,
+          "speaker": "UNKNOWN"
+        },
+        {
+          "end": 55.389,
+          "text": "Love me.",
+          "start": 54.409,
+          "speaker": "SPEAKER_01"
+        },
+        {
+          "end": 59.029,
+          "text": "I'd rather die spinning than live kneeling.",
+          "start": 55.389,
+          "speaker": "SPEAKER_01"
+        },
+        {
+          "end": 59.889,
+          "text": "Love me.",
+          "start": 59.289,
+          "speaker": "SPEAKER_00"
+        },
+        {
+          "end": 62.129,
+          "text": "Yeah, yeah, yeah.",
+          "start": 60.229,
+          "speaker": "SPEAKER_00"
+        },
+        {
+          "end": 63.109,
+          "text": "I'd rather die.",
+          "start": 62.129,
+          "speaker": "UNKNOWN"
+        },
+        {
+          "end": 63.609,
+          "text": "I'd rather die of my flaws.",
+          "start": 63.469,
+          "speaker": "UNKNOWN"
+        },
+        {
+          "end": 64.689,
+          "text": "Cynthia Hals is fighting in time to stand this ch\u1eea fuerte feliz button.",
+          "start": 63.609,
+          "speaker": "UNKNOWN"
+        }
+      ],
+      "num_speakers": 4
+    },
+    "pacing": {
+      "cut_count": 29,
+      "cuts_per_sec": 0.4510108864696734
+    },
+    "visual": {},
+    "captions": {
+      "case": "Mixed",
+      "size": "large",
+      "weight": "bold",
+      "present": true,
+      "position": "center",
+      "animation": "pop_in",
+      "font_feel": "impact-bold",
+      "background": "none",
+      "emoji_usage": "none",
+      "stroke_color": "black",
+      "primary_color": "white",
+      "word_highlight": "color_swap",
+      "highlight_color": "#FF0000",
+      "style_description": "Bold white sans-serif text centered on the screen with occasional red highlights.",
+      "stroke_width_px_estimate": 2
+    },
+    "beat_alignment": {
+      "cut_count": 29,
+      "beat_count": 75,
+      "tolerance_s": 0.1,
+      "cuts_on_beat_pct": 0.241
+    }
+  }
+}

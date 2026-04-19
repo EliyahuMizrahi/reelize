@@ -126,14 +126,37 @@ export async function fetchClipsForClass(
   });
 }
 
-export async function fetchClip(id: string): Promise<Row<'clips'> | null> {
+/** Clip row enriched with the owning class's name + color, fetched via
+ * `topic → class` relation. `className`/`classColor` default to null when
+ * the relations have been deleted or RLS hides them. */
+export interface ClipWithClass extends Row<'clips'> {
+  className: string | null;
+  classColor: string | null;
+}
+
+export async function fetchClip(id: string): Promise<ClipWithClass | null> {
+  // Note on embed syntax: PostgREST auto-resolves this because there's
+  // exactly one FK from clips→topics and one from topics→classes. Do NOT
+  // write `topics:topic_id(...)` — the colon prefix is interpreted as an
+  // FK-name hint and `topic_id` is the column, not the FK name, so the
+  // embed silently returns null and className/classColor fall back to
+  // the hardcoded defaults.
   const { data, error } = await supabase
     .from('clips')
-    .select('*')
+    .select('*, topics ( id, classes ( id, name, color_hex ) )')
     .eq('id', id)
     .maybeSingle();
   if (error) throw error;
-  return data ?? null;
+  if (!data) return null;
+  const { topics, ...rest } = data as Row<'clips'> & {
+    topics: { classes: { name: string; color_hex: string } | null } | null;
+  };
+  const cls = topics?.classes ?? null;
+  return {
+    ...(rest as Row<'clips'>),
+    className: cls?.name ?? null,
+    classColor: cls?.color_hex ?? null,
+  };
 }
 
 // ------- Feed -------

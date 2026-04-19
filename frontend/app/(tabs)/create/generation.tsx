@@ -41,7 +41,7 @@ import { formatDuration } from '@/lib/format';
 // Deconstruction (URL-sourced) mock path retains these labels. The template
 // driven path derives its status text from the stream's latestMessage.
 const STATUSES = [
-  'Reading your topic…',
+  'Reading your disc…',
   'Mapping pacing…',
   'Writing script…',
   'Generating voice…',

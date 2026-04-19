@@ -123,9 +123,9 @@ export default function DashboardScreen() {
         {/* Stats row */}
         <Animated.View entering={ENTER.fadeUp(120)} style={{ marginBottom: spacing['2xl'] }}>
           <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+            <StatTile label="Shelves" value={classCount} hint="on the wall" />
+            <StatTile label="Discs" value={topicCount} hint="in rotation" />
             <StatTile label="Clips" value={clipCount} hint="generated" />
-            <StatTile label="Classes" value={classCount} hint="on the shelf" />
-            <StatTile label="Topics" value={topicCount} hint="in rotation" />
           </View>
         </Animated.View>
 
@@ -226,9 +226,9 @@ function ActivityRowView({
         : entry.kind === 'saved'
           ? 'Saved a clip'
           : entry.kind === 'created_class'
-            ? 'Created a class'
+            ? 'Created a shelf'
             : entry.kind === 'created_topic'
-              ? 'Created a topic'
+              ? 'Created a disc'
               : 'Activity');
 
   return (

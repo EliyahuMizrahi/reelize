@@ -169,7 +169,7 @@ export default function TopicScreen() {
                 <TextField
                   variant="editorial"
                   font="serif"
-                  placeholder="a topic, a question, a curiosity…"
+                  placeholder="a disc, a question, a curiosity…"
                   value={topic}
                   onChangeText={setTopic}
                   autoFocus

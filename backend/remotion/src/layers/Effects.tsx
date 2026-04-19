@@ -57,25 +57,10 @@ const BeatPulse: React.FC<{ durFrames: number }> = ({ durFrames }) => {
   );
 };
 
-// ── cut_flash: full-screen white flash for ~2 frames. ─────────────────────
-const CutFlash: React.FC<{ durFrames: number }> = ({ durFrames }) => {
-  const frame = useCurrentFrame();
-  const flashFrames = Math.min(2, Math.max(1, durFrames));
-  const opacity = interpolate(
-    frame,
-    [0, flashFrames, flashFrames + 1],
-    [1, 1, 0],
-    { extrapolateRight: 'clamp' },
-  );
-  return (
-    <AbsoluteFill
-      style={{
-        backgroundColor: 'white',
-        opacity,
-      }}
-    />
-  );
-};
+// ── cut_flash: disabled by design — a full-screen white flash reads as a
+// glitch on short-form content, so we render nothing. The Sequence still
+// schedules this component at the beat so future tweaks have a hook.
+const CutFlash: React.FC<{ durFrames: number }> = () => null;
 
 // ── slow_mo / speed_ramp: can't retime pre-baked bg in-comp; keep as noop.
 // Log once so the absence is visible during dev.

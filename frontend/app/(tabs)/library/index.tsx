@@ -1,10 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   View,
   ScrollView,
   Pressable,
   Dimensions,
+  Image,
+  Linking,
   Platform,
   StyleSheet,
   Modal,
@@ -14,8 +16,11 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Animated, {
+  Easing,
   useAnimatedStyle,
   useSharedValue,
+  withDelay,
+  withSequence,
   withTiming,
 } from 'react-native-reanimated';
 
@@ -43,19 +48,30 @@ import { formatRelative, summarizeTemplate } from '@/lib/format';
 
 import {
   useClasses,
-  useClipsForClass,
+  useClipsForTopic,
   useTemplatesForUser,
+  useTopicsForClass,
 } from '@/data/hooks';
 import {
   createClass,
+  createTopic,
   deleteClass,
+  deleteClip,
   deleteTemplate,
+  deleteTopic,
   ensureTopicInClass,
   generateClipFromTemplate,
+  updateClass,
+  updateClip,
   updateTemplate,
+  updateTopic,
 } from '@/data/mutations';
-import type { ClassWithCounts } from '@/data/queries';
+import { getJobArtifact } from '@/services/api';
+import { supabase } from '@/lib/supabase';
+import type { ClassWithCounts, TopicWithClipCount } from '@/data/queries';
 import type { Row } from '@/types/supabase';
+
+const STORAGE_BUCKET = process.env.EXPO_PUBLIC_SUPABASE_BUCKET ?? 'reelize-artifacts';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const H_PAD = spacing.xl;
@@ -93,6 +109,16 @@ export default function LibraryScreen() {
   const [newClipOpen, setNewClipOpen] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
 
+  // Disc (topic) selection lives below the shelf (class) selection.
+  // `activeTopicId === null` means "All discs" — show every clip in the shelf.
+  const [activeTopicId, setActiveTopicId] = useState<string | null>(null);
+  const [topicPickerOpen, setTopicPickerOpen] = useState(false);
+  const [newDiscOpen, setNewDiscOpen] = useState(false);
+
+  const { data: topics, loading: topicsLoading, refresh: refreshTopics } =
+    useTopicsForClass(activeId ?? undefined);
+  const topicList = topics ?? [];
+
   // Apply inbound params once classes are loaded.
   useEffect(() => {
     const tabParam = params.tab as string | undefined;
@@ -121,6 +147,98 @@ export default function LibraryScreen() {
     [classList, activeId],
   );
 
+  // Auto-select a disc whenever the topic list loads or the current selection
+  // disappears. Null is only valid for shelves with zero discs — otherwise we
+  // always land on a real disc so clips below are never unexpectedly empty.
+  //
+  // Note: we don't reset activeTopicId on shelf change. The stale topic id
+  // simply fails the `find` below on the next topicList refresh and gets
+  // swapped for the first disc of the new shelf. The lenient `activeTopic`
+  // memo bridges the 1-frame gap so the UI never sees a null topic while a
+  // valid one exists.
+  //
+  // When this effect changes activeTopicId, flag the next fade trigger to
+  // suppress — the shelf switch already ran its own fade, and re-running on
+  // the system-driven topic reconciliation produces a visible second pulse.
+  const suppressTopicFadeRef = useRef(false);
+  useEffect(() => {
+    if (topicList.length === 0) {
+      if (activeTopicId !== null) {
+        suppressTopicFadeRef.current = true;
+        setActiveTopicId(null);
+      }
+      return;
+    }
+    if (!activeTopicId || !topicList.find((t) => t.id === activeTopicId)) {
+      suppressTopicFadeRef.current = true;
+      setActiveTopicId(topicList[0].id);
+    }
+  }, [topicList, activeTopicId]);
+
+  // Lenient lookup — if the selection is stale against the current topic
+  // list (mid-transition), fall back to the first disc instead of null so
+  // ClipsTab doesn't flash its "No disc selected" empty state.
+  const activeTopic = useMemo(() => {
+    if (topicList.length === 0) return null;
+    return topicList.find((t) => t.id === activeTopicId) ?? topicList[0];
+  }, [topicList, activeTopicId]);
+
+  // ── Cross-fade on selection change ─────────────────────────────────────
+  // The queries keep stale data visible while the new fetch runs, which was
+  // flashing old discs / old clips under the newly-picked shelf or disc.
+  // We fade out, hold for ~220ms (enough for Supabase to respond on a typical
+  // connection), then fade in. If the backend is slower the new content
+  // shows a brief loading state — still cleaner than seeing wrong data.
+  //
+  // A shelf switch always fades. A disc change fades only when it was
+  // user-initiated; when the auto-select effect above reconciles the topic id
+  // after topics arrive, it flags `suppressTopicFadeRef` so that second
+  // transition is silent.
+  const contentOpacity = useSharedValue(1);
+  const firstRender = useRef(true);
+  const prevActiveIdRef = useRef(activeId);
+  const prevTopicIdRef = useRef(activeTopicId);
+  useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false;
+      prevActiveIdRef.current = activeId;
+      prevTopicIdRef.current = activeTopicId;
+      return;
+    }
+    const shelfChanged = prevActiveIdRef.current !== activeId;
+    const topicChanged = prevTopicIdRef.current !== activeTopicId;
+    prevActiveIdRef.current = activeId;
+    prevTopicIdRef.current = activeTopicId;
+
+    const topicFade = topicChanged && !suppressTopicFadeRef.current;
+    if (suppressTopicFadeRef.current) suppressTopicFadeRef.current = false;
+
+    if (!shelfChanged && !topicFade) return;
+    contentOpacity.value = withSequence(
+      withTiming(0, { duration: 140, easing: Easing.out(Easing.quad) }),
+      withDelay(
+        220,
+        withTiming(1, { duration: 220, easing: Easing.out(Easing.cubic) }),
+      ),
+    );
+  }, [activeId, activeTopicId, contentOpacity]);
+  const contentAnim = useAnimatedStyle(() => ({ opacity: contentOpacity.value }));
+
+  // ── Empty-state delay gate ─────────────────────────────────────────────
+  // `useClasses` returns { loading:false, data:null } while auth is still
+  // warming up, which would flash the "Start a shelf" screen before the real
+  // class list arrives. Only show the empty state after it's been steady for
+  // a short moment.
+  const [emptyConfirmed, setEmptyConfirmed] = useState(false);
+  useEffect(() => {
+    if (loading || classList.length > 0) {
+      setEmptyConfirmed(false);
+      return;
+    }
+    const t = setTimeout(() => setEmptyConfirmed(true), 450);
+    return () => clearTimeout(t);
+  }, [loading, classList.length]);
+
   const onCreateCourse = useCallback(() => {
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
@@ -137,8 +255,25 @@ export default function LibraryScreen() {
     [refresh],
   );
 
-  // Empty state — no courses yet.
-  if (!loading && classList.length === 0) {
+  const onCreateDisc = useCallback(() => {
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    }
+    setNewDiscOpen(true);
+  }, []);
+
+  const onDiscCreated = useCallback(
+    (id: string) => {
+      setNewDiscOpen(false);
+      setActiveTopicId(id);
+      refreshTopics();
+    },
+    [refreshTopics],
+  );
+
+  // Empty state — no courses yet. Gated by `emptyConfirmed` so it doesn't
+  // flash during the initial auth/data warm-up.
+  if (emptyConfirmed) {
     return (
       <Screen>
         <View
@@ -171,13 +306,13 @@ export default function LibraryScreen() {
             muted
             style={{ marginTop: 8, maxWidth: 280 }}
           >
-            A course is a room. Name yours.
+            A shelf is a room. Name yours.
           </BodySm>
           <View style={{ marginTop: spacing['2xl'] }}>
             <Button
               variant="shimmer"
               size="lg"
-              title="Start a course"
+              title="Start a shelf"
               leading={<Feather name="plus" size={16} color={palette.ink} />}
               onPress={onCreateCourse}
             />
@@ -194,18 +329,56 @@ export default function LibraryScreen() {
 
   return (
     <Screen>
-      {/* Header bar: course picker + Templates chip */}
-      <CourseHeaderBar
-        activeClass={activeClass}
-        onOpenPicker={() => setPickerOpen(true)}
-        onOpenTemplates={() => setTemplatesOpen(true)}
-      />
+      {/* Everything that depends on the active shelf/disc fades as a unit so
+          the transition hides the stale-data window while the new fetch runs. */}
+      <Animated.View style={[{ flex: 1 }, contentAnim]}>
+        {/* Header bar: course picker + Templates chip */}
+        <CourseHeaderBar
+          activeClass={activeClass}
+          onOpenPicker={() => setPickerOpen(true)}
+          onOpenTemplates={() => setTemplatesOpen(true)}
+        />
 
-      {/* Clips — the only content in the shelf now. Templates live in a
-          universal sheet opened from the header chip. */}
-      <ClipsTab
+        {/* Disc (topic) picker — sits beneath the shelf header and scopes the
+            clips below. */}
+        <DiscHeaderBar
+          activeClass={activeClass}
+          activeTopic={activeTopic}
+          topicCount={topicList.length}
+          onOpenPicker={() => setTopicPickerOpen(true)}
+        />
+
+        {/* Clips — always filtered to the active disc. */}
+        <ClipsTab
+          activeClass={activeClass}
+          activeTopic={activeTopic}
+          topicsLoading={topicsLoading}
+          onCreateClip={() => setNewClipOpen(true)}
+        />
+      </Animated.View>
+
+      {/* Disc picker modal */}
+      <TopicPickerModal
+        open={topicPickerOpen}
+        topics={topicList}
+        activeId={activeTopicId}
         activeClass={activeClass}
-        onCreateClip={() => setNewClipOpen(true)}
+        onPick={(id) => {
+          setActiveTopicId(id);
+          setTopicPickerOpen(false);
+        }}
+        onNewDisc={() => {
+          setTopicPickerOpen(false);
+          onCreateDisc();
+        }}
+        onDeleted={(id) => {
+          if (activeTopicId === id) setActiveTopicId(null);
+          refreshTopics();
+        }}
+        onRefreshNeeded={() => {
+          refreshTopics();
+        }}
+        onClose={() => setTopicPickerOpen(false)}
       />
 
       {/* Course picker modal */}
@@ -228,6 +401,7 @@ export default function LibraryScreen() {
           }
           refresh();
         }}
+        onRenamed={() => refresh()}
         onClose={() => setPickerOpen(false)}
       />
 
@@ -236,6 +410,14 @@ export default function LibraryScreen() {
         open={newCourseOpen}
         onClose={() => setNewCourseOpen(false)}
         onCreated={onCourseCreated}
+      />
+
+      {/* New disc modal */}
+      <NewDiscModal
+        open={newDiscOpen}
+        activeClass={activeClass}
+        onClose={() => setNewDiscOpen(false)}
+        onCreated={onDiscCreated}
       />
 
       {/* New clip modal (universal template picker) */}
@@ -290,7 +472,7 @@ function CourseHeaderBar({
             opacity: pressed ? 0.7 : 1,
           })}
           accessibilityRole="button"
-          accessibilityLabel="Change course"
+          accessibilityLabel="Change shelf"
         >
           <View
             style={{
@@ -307,7 +489,7 @@ function CourseHeaderBar({
             minimumFontScale={0.55}
             style={[{ flexShrink: 1 }, courseNameSizeStyle(activeClass?.name)]}
           >
-            {activeClass?.name ?? 'Pick a course'}
+            {activeClass?.name ?? 'Pick a shelf'}
           </Display2>
           <Feather
             name="chevron-down"
@@ -321,9 +503,86 @@ function CourseHeaderBar({
 
       {activeClass ? (
         <MonoSm muted style={{ marginTop: 4 }}>
-          {activeClass.topic_count} topics · {activeClass.clip_count} clips
+          {activeClass.topic_count} discs · {activeClass.clip_count} clips
         </MonoSm>
       ) : null}
+    </View>
+  );
+}
+
+// ───────────────────────── Disc header bar ─────────────────────────
+// Mirrors CourseHeaderBar one level down. `activeTopic === null` means the
+// shelf-level "All discs" view, so the label reads "All discs" and the color
+// dot falls back to the shelf's color.
+function DiscHeaderBar({
+  activeClass,
+  activeTopic,
+  topicCount,
+  onOpenPicker,
+}: {
+  activeClass: ClassWithCounts | null;
+  activeTopic: TopicWithClipCount | null;
+  topicCount: number;
+  onOpenPicker: () => void;
+}) {
+  const { colors } = useAppTheme();
+  if (!activeClass) return null;
+
+  const hasDiscs = topicCount > 0;
+  const label = activeTopic?.name ?? (hasDiscs ? 'Pick a disc' : 'No discs yet');
+  const dotColor = activeClass.color_hex ?? palette.teal;
+  const subtitle = activeTopic
+    ? `${activeTopic.clip_count} clip${activeTopic.clip_count === 1 ? '' : 's'}`
+    : hasDiscs
+      ? `${topicCount} disc${topicCount === 1 ? '' : 's'}`
+      : 'Tap to add one';
+
+  return (
+    <View
+      style={{
+        paddingHorizontal: H_PAD,
+        paddingTop: spacing.xs,
+        paddingBottom: spacing.md,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border as string,
+      }}
+    >
+      <Pressable
+        onPress={onOpenPicker}
+        style={({ pressed }) => ({
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: spacing.sm,
+          opacity: pressed ? 0.7 : 1,
+        })}
+        accessibilityRole="button"
+        accessibilityLabel="Change disc"
+      >
+        <View
+          style={{
+            width: 10,
+            height: 10,
+            borderRadius: 2,
+            backgroundColor: activeTopic ? dotColor : dotColor + '88',
+          }}
+        />
+        <Title
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.6}
+          style={{ flexShrink: 1 }}
+        >
+          {label}
+        </Title>
+        <Feather
+          name="chevron-down"
+          size={16}
+          color={colors.mutedText as string}
+        />
+      </Pressable>
+      <MonoSm muted style={{ marginTop: 2 }}>
+        {subtitle}
+      </MonoSm>
     </View>
   );
 }
@@ -384,65 +643,98 @@ function TemplatesChip({ onPress }: { onPress: () => void }) {
 // ───────────────────────── Clips tab ─────────────────────────
 function ClipsTab({
   activeClass,
+  activeTopic,
+  topicsLoading,
   onCreateClip,
 }: {
   activeClass: ClassWithCounts | null;
+  activeTopic: TopicWithClipCount | null;
+  topicsLoading: boolean;
   onCreateClip: () => void;
 }) {
-  const { colors } = useAppTheme();
   const router = useRouter();
-  const { data: clips, loading } = useClipsForClass(activeClass?.id);
+  // Clips are always scoped to the active disc. When no disc is selected
+  // (shelf has none yet), the hook is passed undefined and returns an empty
+  // list — UI below shows the "no disc" empty state.
+  const { data: clips, loading, refresh } = useClipsForTopic(activeTopic?.id);
   const list = clips ?? [];
+  const [menuClip, setMenuClip] = useState<Row<'clips'> | null>(null);
+
+  // Show "No disc selected" only once the topics fetch has settled for the
+  // current shelf. While `topicsLoading` is true the stale topic list may be
+  // empty (e.g. switching away from an empty shelf), and surfacing the panel
+  // mid-fetch produced the flash we're avoiding.
+  const showNoDiscPanel = !activeTopic && !topicsLoading && !!activeClass;
 
   return (
-    <ScrollView
-      contentContainerStyle={{
-        paddingHorizontal: H_PAD,
-        paddingTop: spacing.lg,
-        paddingBottom: spacing['7xl'],
-      }}
-      showsVerticalScrollIndicator={false}
-    >
-      {/* Create clip CTA */}
-      <View style={{ marginBottom: spacing.lg }}>
-        <Button
-          variant="shimmer"
-          size="md"
-          title="New clip from template"
-          leading={<Feather name="plus" size={14} color={palette.ink} />}
-          onPress={onCreateClip}
-          fullWidth
-        />
-      </View>
-
-      {loading ? (
-        <MonoSm muted>Loading clips…</MonoSm>
-      ) : list.length === 0 ? (
-        <EmptyPanel
-          icon="film"
-          title="No clips yet."
-          body="Pick a template and spin up your first clip. Generation is wired up soon."
-        />
-      ) : (
-        <View
-          style={{
-            flexDirection: 'row',
-            flexWrap: 'wrap',
-            gap: GRID_GAP,
-          }}
-        >
-          {list.map((clip, i) => (
-            <ClipCard
-              key={clip.id}
-              clip={clip}
-              index={i}
-              classColor={activeClass?.color_hex ?? palette.teal}
-              onPress={() => router.push(`/player/${clip.id}` as any)}
-            />
-          ))}
+    <>
+      <ScrollView
+        contentContainerStyle={{
+          paddingHorizontal: H_PAD,
+          paddingTop: spacing.lg,
+          paddingBottom: spacing['7xl'],
+        }}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Create clip CTA */}
+        <View style={{ marginBottom: spacing.lg }}>
+          <Button
+            variant="shimmer"
+            size="md"
+            title="New clip from template"
+            leading={<Feather name="plus" size={14} color={palette.ink} />}
+            onPress={onCreateClip}
+            fullWidth
+          />
         </View>
-      )}
-    </ScrollView>
+
+        {!activeTopic ? (
+          showNoDiscPanel ? (
+            <EmptyPanel
+              icon="disc"
+              title="No disc selected."
+              body="Create a disc from the picker above to start filling it with clips."
+            />
+          ) : null
+        ) : loading ? (
+          <MonoSm muted>Loading clips…</MonoSm>
+        ) : list.length === 0 ? (
+          <EmptyPanel
+            icon="film"
+            title="No clips yet."
+            body="Pick a template and spin up your first clip. Generation is wired up soon."
+          />
+        ) : (
+          <View
+            style={{
+              flexDirection: 'row',
+              flexWrap: 'wrap',
+              gap: GRID_GAP,
+            }}
+          >
+            {list.map((clip, i) => (
+              <ClipCard
+                key={clip.id}
+                clip={clip}
+                index={i}
+                classColor={activeClass?.color_hex ?? palette.teal}
+                onPress={() => router.push(`/player/${clip.id}` as any)}
+                onMenu={() => setMenuClip(clip)}
+              />
+            ))}
+          </View>
+        )}
+      </ScrollView>
+
+      <ClipActionsMenu
+        clip={menuClip}
+        onClose={() => setMenuClip(null)}
+        onDeleted={() => {
+          setMenuClip(null);
+          refresh();
+        }}
+      />
+    </>
   );
 }
 
@@ -451,11 +743,13 @@ function ClipCard({
   index,
   classColor,
   onPress,
+  onMenu,
 }: {
   clip: Row<'clips'>;
   index: number;
   classColor: string;
   onPress: () => void;
+  onMenu: () => void;
 }) {
   const tint = clip.thumbnail_color ?? palette.tealDeep;
   const durationLabel = (() => {
@@ -464,6 +758,36 @@ function ClipCard({
     const r = sec % 60;
     return `${m}:${r.toString().padStart(2, '0')}`;
   })();
+
+  // Sign a short-lived URL for the poster frame if the clip has one. Cached
+  // per clip id so we don't re-sign on every render.
+  const thumbKey =
+    typeof (clip.artifacts as any)?.thumbnail === 'string'
+      ? ((clip.artifacts as any).thumbnail as string)
+      : null;
+  const [thumbUrl, setThumbUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!thumbKey) {
+      setThumbUrl(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data, error } = await supabase.storage
+          .from(STORAGE_BUCKET)
+          .createSignedUrl(thumbKey, 3600);
+        if (cancelled) return;
+        if (!error && data?.signedUrl) setThumbUrl(data.signedUrl);
+      } catch {
+        /* swallow — gradient fallback stays visible */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [thumbKey]);
+
   return (
     <Animated.View
       entering={ENTER.fadeUp(80 + index * 40)}
@@ -486,15 +810,25 @@ function ClipCard({
             borderColor: classColor + '55',
           }}
         >
+          {/* base tint — shows until the image loads OR if the clip has no
+              thumbnail artifact. */}
           <LinearGradient
             colors={[tint, classColor + '33', palette.ink]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={StyleSheet.absoluteFillObject}
           />
-          <View style={{ position: 'absolute', top: 20, left: 12, opacity: 0.22 }}>
-            <Shards size={110} phase="assembled" color={classColor} />
-          </View>
+          {thumbUrl ? (
+            <Image
+              source={{ uri: thumbUrl }}
+              style={StyleSheet.absoluteFillObject}
+              resizeMode="cover"
+            />
+          ) : (
+            <View style={{ position: 'absolute', top: 20, left: 12, opacity: 0.22 }}>
+              <Shards size={110} phase="assembled" color={classColor} />
+            </View>
+          )}
           <LinearGradient
             colors={['transparent', 'rgba(4,20,30,0.9)']}
             locations={[0.4, 1]}
@@ -521,8 +855,239 @@ function ClipCard({
             </View>
           </View>
         </View>
+
+        <Pressable
+          onPress={(e) => {
+            e.stopPropagation?.();
+            if (Platform.OS !== 'web') {
+              Haptics.selectionAsync().catch(() => {});
+            }
+            onMenu();
+          }}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={`Clip actions for ${clip.title}`}
+          style={({ pressed }) => ({
+            position: 'absolute',
+            top: 8,
+            right: 8,
+            width: 32,
+            height: 32,
+            borderRadius: 16,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: 'rgba(4,20,30,0.55)',
+            borderWidth: 1,
+            borderColor: 'rgba(255,255,255,0.14)',
+            opacity: pressed ? 0.7 : 1,
+          })}
+        >
+          <Feather name="more-vertical" size={16} color={palette.mist} />
+        </Pressable>
       </Pressable>
     </Animated.View>
+  );
+}
+
+// ───────────────────────── Clip actions sheet (Rename / Download / Delete) ─────────────────────────
+function ClipActionsMenu({
+  clip,
+  onClose,
+  onDeleted,
+}: {
+  clip: Row<'clips'> | null;
+  onClose: () => void;
+  onDeleted: () => void;
+}) {
+  const { colors } = useAppTheme();
+  const [title, setTitle] = useState('');
+  const [busy, setBusy] = useState<'rename' | 'download' | 'delete' | null>(
+    null,
+  );
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (clip) {
+      setTitle(clip.title ?? '');
+      setBusy(null);
+      setErr(null);
+    }
+  }, [clip]);
+
+  const trimmed = title.trim();
+  const nameDirty = !!clip && trimmed.length >= 2 && trimmed !== (clip.title ?? '');
+
+  const onRename = async () => {
+    if (!clip || !nameDirty || busy !== null) return;
+    setBusy('rename');
+    setErr(null);
+    try {
+      await updateClip(clip.id, { title: trimmed });
+      if (Platform.OS !== 'web') {
+        Haptics.notificationAsync(
+          Haptics.NotificationFeedbackType.Success,
+        ).catch(() => {});
+      }
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const onDownload = async () => {
+    if (!clip) return;
+    setErr(null);
+    const jobId = clip.generation_job_id ?? clip.job_id;
+    if (!jobId) {
+      setErr('This clip has no rendered video yet.');
+      return;
+    }
+    setBusy('download');
+    try {
+      const res = await getJobArtifact(jobId, 'video');
+      const url = typeof res.url === 'string' ? res.url : null;
+      if (!url) {
+        setErr('Rendered video is still processing.');
+        setBusy(null);
+        return;
+      }
+      const opened = await Linking.canOpenURL(url);
+      if (!opened) throw new Error('Cannot open signed URL on this device.');
+      await Linking.openURL(url);
+      onClose();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const onDeletePress = () => {
+    if (!clip) return;
+    const run = async () => {
+      setBusy('delete');
+      setErr(null);
+      try {
+        await deleteClip(clip.id);
+        if (Platform.OS !== 'web') {
+          Haptics.notificationAsync(
+            Haptics.NotificationFeedbackType.Success,
+          ).catch(() => {});
+        }
+        onDeleted();
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : String(e));
+        setBusy(null);
+      }
+    };
+
+    const alertTitle = `Delete "${clip.title}"?`;
+    const body = 'This removes the clip from your shelf. Cannot be undone.';
+    if (Platform.OS === 'web') {
+      if (window.confirm(`${alertTitle}\n\n${body}`)) run();
+      return;
+    }
+    Alert.alert(alertTitle, body, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: run },
+    ]);
+  };
+
+  const headerTitle = clip?.title ?? '';
+  const TitleComponent = headerTitle.length > 28 ? TitleSm : Title;
+  const stickyHeader = (
+    <View
+      style={{
+        paddingHorizontal: H_PAD,
+        paddingTop: spacing.sm,
+        paddingBottom: spacing.md,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border as string,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+      }}
+    >
+      <Feather name="film" size={18} color={colors.primary as string} />
+      <View style={{ flex: 1 }}>
+        <TitleComponent numberOfLines={2}>{headerTitle}</TitleComponent>
+      </View>
+    </View>
+  );
+
+  return (
+    <DraggableBottomSheet
+      visible={!!clip}
+      onClose={onClose}
+      heightRatio={0.55}
+      keyboardOffsetRatio={1}
+      backgroundColor={colors.background as string}
+      accentColor={colors.primary as string}
+      backdropOpacity={0.6}
+      stickyHeader={stickyHeader}
+    >
+      <View
+        style={{
+          paddingHorizontal: H_PAD,
+          paddingTop: spacing.lg,
+          gap: spacing.lg,
+        }}
+      >
+        <View style={{ gap: 6 }}>
+          <Overline muted>NAME</Overline>
+          <TextField
+            variant="boxed"
+            placeholder="Clip name"
+            value={title}
+            onChangeText={setTitle}
+            onBlur={onRename}
+            onSubmitEditing={onRename}
+            returnKeyType="done"
+            blurOnSubmit
+          />
+        </View>
+
+        <View
+          style={{
+            height: 1,
+            backgroundColor: colors.border as string,
+            opacity: 0.6,
+          }}
+        />
+
+        <View style={{ gap: spacing.sm }}>
+          <Button
+            variant="tertiary"
+            size="md"
+            title={busy === 'download' ? 'Opening download…' : 'Download'}
+            onPress={onDownload}
+            disabled={busy !== null}
+            leading={
+              <Feather
+                name="download"
+                size={14}
+                color={colors.text as string}
+              />
+            }
+            fullWidth
+          />
+          <Button
+            variant="tertiary"
+            size="md"
+            title={busy === 'delete' ? 'Deleting…' : 'Delete clip'}
+            onPress={onDeletePress}
+            disabled={busy !== null}
+            leading={
+              <Feather name="trash-2" size={14} color={palette.alert} />
+            }
+            fullWidth
+          />
+        </View>
+
+        {err ? <MonoSm color={palette.alert}>{err}</MonoSm> : null}
+      </View>
+    </DraggableBottomSheet>
   );
 }
 
@@ -929,6 +1494,7 @@ function CoursePickerModal({
   onPick,
   onNewCourse,
   onDeleted,
+  onRenamed,
   onClose,
 }: {
   open: boolean;
@@ -937,10 +1503,56 @@ function CoursePickerModal({
   onPick: (id: string) => void;
   onNewCourse: () => void;
   onDeleted: (id: string) => void;
+  onRenamed?: () => void;
   onClose: () => void;
 }) {
   const { colors } = useAppTheme();
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
+  const [savingId, setSavingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setEditingId(null);
+      setEditValue('');
+      setSavingId(null);
+    }
+  }, [open]);
+
+  const beginEdit = (c: ClassWithCounts) => {
+    setEditingId(c.id);
+    setEditValue(c.name);
+  };
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditValue('');
+  };
+  const commitEdit = async (c: ClassWithCounts) => {
+    if (savingId) return;
+    const next = editValue.trim();
+    if (next.length < 2 || next === c.name) {
+      cancelEdit();
+      return;
+    }
+    setSavingId(c.id);
+    try {
+      await updateClass(c.id, { name: next });
+      onRenamed?.();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (Platform.OS === 'web') {
+        // eslint-disable-next-line no-alert
+        window.alert(`Couldn't rename shelf: ${msg}`);
+      } else {
+        Alert.alert("Couldn't rename shelf", msg);
+      }
+    } finally {
+      setSavingId(null);
+      setEditingId(null);
+      setEditValue('');
+    }
+  };
 
   const confirmDelete = (c: ClassWithCounts) => {
     // Web doesn't support Alert.alert buttons cleanly — fall back to window.confirm.
@@ -955,7 +1567,7 @@ function CoursePickerModal({
           // eslint-disable-next-line no-alert
           window.alert(`Couldn't delete course: ${msg}`);
         } else {
-          Alert.alert("Couldn't delete course", msg);
+          Alert.alert("Couldn't delete shelf", msg);
         }
       } finally {
         setDeletingId(null);
@@ -1013,7 +1625,7 @@ function CoursePickerModal({
               borderBottomColor: colors.border as string,
             }}
           >
-            <Overline muted>COURSES</Overline>
+            <Overline muted>SHELVES</Overline>
             <IconButton
               variant="ghost"
               size={32}
@@ -1027,6 +1639,8 @@ function CoursePickerModal({
             {classes.map((c) => {
               const active = c.id === activeId;
               const deleting = deletingId === c.id;
+              const editing = editingId === c.id;
+              const saving = savingId === c.id;
               return (
                 <View
                   key={c.id}
@@ -1037,48 +1651,97 @@ function CoursePickerModal({
                     opacity: deleting ? 0.5 : 1,
                   }}
                 >
-                  <Pressable
-                    onPress={() => onPick(c.id)}
-                    disabled={deleting}
-                    style={({ pressed }) => ({
-                      flex: 1,
-                      paddingHorizontal: spacing.lg,
-                      paddingVertical: spacing.md,
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: spacing.md,
-                      backgroundColor: pressed
-                        ? (colors.elevated as string)
-                        : 'transparent',
-                    })}
-                  >
+                  {editing ? (
                     <View
                       style={{
-                        width: 12,
-                        height: 12,
-                        borderRadius: 3,
-                        backgroundColor: c.color_hex,
+                        flex: 1,
+                        paddingHorizontal: spacing.lg,
+                        paddingVertical: spacing.sm,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: spacing.md,
                       }}
-                    />
-                    <View style={{ flex: 1 }}>
-                      <Text variant="body" weight="medium">
-                        {c.name}
-                      </Text>
-                      <MonoSm muted>{c.clip_count} clips</MonoSm>
-                    </View>
-                    {active ? (
-                      <Feather
-                        name="check"
-                        size={14}
-                        color={colors.primary as string}
+                    >
+                      <View
+                        style={{
+                          width: 12,
+                          height: 12,
+                          borderRadius: 3,
+                          backgroundColor: c.color_hex,
+                        }}
                       />
-                    ) : null}
-                  </Pressable>
+                      <TextField
+                        variant="boxed"
+                        value={editValue}
+                        onChangeText={setEditValue}
+                        onBlur={() => commitEdit(c)}
+                        onSubmitEditing={() => commitEdit(c)}
+                        returnKeyType="done"
+                        autoFocus
+                        editable={!saving}
+                        blurOnSubmit
+                        containerStyle={{ flex: 1 }}
+                      />
+                    </View>
+                  ) : (
+                    <Pressable
+                      onPress={() => onPick(c.id)}
+                      disabled={deleting}
+                      style={({ pressed }) => ({
+                        flex: 1,
+                        paddingHorizontal: spacing.lg,
+                        paddingVertical: spacing.md,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: spacing.md,
+                        backgroundColor: pressed
+                          ? (colors.elevated as string)
+                          : 'transparent',
+                      })}
+                    >
+                      <View
+                        style={{
+                          width: 12,
+                          height: 12,
+                          borderRadius: 3,
+                          backgroundColor: c.color_hex,
+                        }}
+                      />
+                      <View style={{ flex: 1 }}>
+                        <Text variant="body" weight="medium">
+                          {c.name}
+                        </Text>
+                        <MonoSm muted>{c.clip_count} clips</MonoSm>
+                      </View>
+                      {active ? (
+                        <Feather
+                          name="check"
+                          size={14}
+                          color={colors.primary as string}
+                        />
+                      ) : null}
+                    </Pressable>
+                  )}
+                  {!editing ? (
+                    <IconButton
+                      variant="ghost"
+                      size={32}
+                      onPress={() => beginEdit(c)}
+                      disabled={deleting}
+                      accessibilityLabel={`Rename ${c.name}`}
+                    >
+                      <Feather
+                        name="edit-2"
+                        size={13}
+                        color={colors.mutedText as string}
+                      />
+                    </IconButton>
+                  ) : null}
                   <IconButton
                     variant="ghost"
                     size={32}
                     onPress={() => confirmDelete(c)}
-                    disabled={deleting}
+                    disabled={deleting || editing}
                     accessibilityLabel={`Delete ${c.name}`}
                   >
                     <Feather
@@ -1120,7 +1783,336 @@ function CoursePickerModal({
                 weight="semibold"
                 color={colors.primary as string}
               >
-                New course
+                New shelf
+              </Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+// ───────────────────────── Disc (topic) picker modal ─────────────────────────
+// Mirrors CoursePickerModal one level deeper. A disc is always selected as
+// long as the shelf has at least one — there is no "All discs" view.
+function TopicPickerModal({
+  open,
+  topics,
+  activeId,
+  activeClass,
+  onPick,
+  onNewDisc,
+  onDeleted,
+  onRefreshNeeded,
+  onClose,
+}: {
+  open: boolean;
+  topics: TopicWithClipCount[];
+  activeId: string | null;
+  activeClass: ClassWithCounts | null;
+  onPick: (id: string) => void;
+  onNewDisc: () => void;
+  onDeleted: (id: string) => void;
+  onRefreshNeeded: () => void;
+  onClose: () => void;
+}) {
+  const { colors } = useAppTheme();
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
+  const [savingId, setSavingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setEditingId(null);
+      setEditValue('');
+      setSavingId(null);
+    }
+  }, [open]);
+
+  const shelfColor = activeClass?.color_hex ?? palette.teal;
+
+  const beginEdit = (t: TopicWithClipCount) => {
+    setEditingId(t.id);
+    setEditValue(t.name);
+  };
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditValue('');
+  };
+  const commitEdit = async (t: TopicWithClipCount) => {
+    if (savingId) return;
+    const next = editValue.trim();
+    if (next.length < 2 || next === t.name) {
+      cancelEdit();
+      return;
+    }
+    setSavingId(t.id);
+    try {
+      await updateTopic(t.id, { name: next });
+      onRefreshNeeded();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (Platform.OS === 'web') {
+        // eslint-disable-next-line no-alert
+        window.alert(`Couldn't rename disc: ${msg}`);
+      } else {
+        Alert.alert("Couldn't rename disc", msg);
+      }
+    } finally {
+      setSavingId(null);
+      setEditingId(null);
+      setEditValue('');
+    }
+  };
+
+  const confirmDelete = (t: TopicWithClipCount) => {
+    const runDelete = async () => {
+      setDeletingId(t.id);
+      try {
+        await deleteTopic(t.id);
+        onDeleted(t.id);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (Platform.OS === 'web') {
+          // eslint-disable-next-line no-alert
+          window.alert(`Couldn't delete disc: ${msg}`);
+        } else {
+          Alert.alert("Couldn't delete disc", msg);
+        }
+      } finally {
+        setDeletingId(null);
+      }
+    };
+
+    const body = `This removes "${t.name}" and its ${t.clip_count} clip${t.clip_count === 1 ? '' : 's'}. Can't undo.`;
+    if (Platform.OS === 'web') {
+      // eslint-disable-next-line no-alert
+      if (window.confirm(`Delete "${t.name}"?\n\n${body}`)) runDelete();
+      return;
+    }
+    Alert.alert(`Delete "${t.name}"?`, body, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: runDelete },
+    ]);
+  };
+
+  return (
+    <Modal
+      visible={open}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <Pressable
+        onPress={onClose}
+        style={{
+          flex: 1,
+          backgroundColor: 'rgba(4,20,30,0.72)',
+          alignItems: 'stretch',
+          justifyContent: 'flex-start',
+          paddingTop: spacing['5xl'],
+          paddingHorizontal: spacing.lg,
+        }}
+      >
+        <Pressable
+          onPress={() => {}}
+          style={{
+            borderRadius: radii['2xl'],
+            backgroundColor: colors.card as string,
+            borderWidth: 1,
+            borderColor: colors.border as string,
+            overflow: 'hidden',
+          }}
+        >
+          <View
+            style={{
+              paddingHorizontal: spacing.lg,
+              paddingVertical: spacing.md,
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              borderBottomWidth: 1,
+              borderBottomColor: colors.border as string,
+            }}
+          >
+            <Overline muted>
+              {activeClass ? `DISCS · ${activeClass.name}` : 'DISCS'}
+            </Overline>
+            <IconButton
+              variant="ghost"
+              size={32}
+              onPress={onClose}
+              accessibilityLabel="Close"
+            >
+              <Feather name="x" size={14} color={colors.text as string} />
+            </IconButton>
+          </View>
+          <ScrollView style={{ maxHeight: 360 }}>
+            {topics.length === 0 ? (
+              <View
+                style={{
+                  paddingHorizontal: spacing.lg,
+                  paddingVertical: spacing.lg,
+                }}
+              >
+                <MonoSm muted>No discs yet. Create one below.</MonoSm>
+              </View>
+            ) : null}
+            {topics.map((t) => {
+              const active = t.id === activeId;
+              const deleting = deletingId === t.id;
+              const editing = editingId === t.id;
+              const saving = savingId === t.id;
+              return (
+                <View
+                  key={t.id}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    paddingRight: spacing.sm,
+                    opacity: deleting ? 0.5 : 1,
+                  }}
+                >
+                  {editing ? (
+                    <View
+                      style={{
+                        flex: 1,
+                        paddingHorizontal: spacing.lg,
+                        paddingVertical: spacing.sm,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: spacing.md,
+                      }}
+                    >
+                      <View
+                        style={{
+                          width: 10,
+                          height: 10,
+                          borderRadius: 2,
+                          backgroundColor: shelfColor,
+                        }}
+                      />
+                      <TextField
+                        variant="boxed"
+                        value={editValue}
+                        onChangeText={setEditValue}
+                        onBlur={() => commitEdit(t)}
+                        onSubmitEditing={() => commitEdit(t)}
+                        returnKeyType="done"
+                        autoFocus
+                        editable={!saving}
+                        blurOnSubmit
+                        containerStyle={{ flex: 1 }}
+                      />
+                    </View>
+                  ) : (
+                    <Pressable
+                      onPress={() => onPick(t.id)}
+                      disabled={deleting}
+                      style={({ pressed }) => ({
+                        flex: 1,
+                        paddingHorizontal: spacing.lg,
+                        paddingVertical: spacing.md,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: spacing.md,
+                        backgroundColor: pressed
+                          ? (colors.elevated as string)
+                          : 'transparent',
+                      })}
+                    >
+                      <View
+                        style={{
+                          width: 10,
+                          height: 10,
+                          borderRadius: 2,
+                          backgroundColor: shelfColor,
+                        }}
+                      />
+                      <View style={{ flex: 1 }}>
+                        <Text variant="body" weight="medium">
+                          {t.name}
+                        </Text>
+                        <MonoSm muted>
+                          {t.clip_count} clip{t.clip_count === 1 ? '' : 's'}
+                        </MonoSm>
+                      </View>
+                      {active ? (
+                        <Feather
+                          name="check"
+                          size={14}
+                          color={colors.primary as string}
+                        />
+                      ) : null}
+                    </Pressable>
+                  )}
+                  {!editing ? (
+                    <IconButton
+                      variant="ghost"
+                      size={32}
+                      onPress={() => beginEdit(t)}
+                      disabled={deleting}
+                      accessibilityLabel={`Rename ${t.name}`}
+                    >
+                      <Feather
+                        name="edit-2"
+                        size={13}
+                        color={colors.mutedText as string}
+                      />
+                    </IconButton>
+                  ) : null}
+                  <IconButton
+                    variant="ghost"
+                    size={32}
+                    onPress={() => confirmDelete(t)}
+                    disabled={deleting || editing}
+                    accessibilityLabel={`Delete ${t.name}`}
+                  >
+                    <Feather
+                      name="trash-2"
+                      size={14}
+                      color={palette.alert}
+                    />
+                  </IconButton>
+                </View>
+              );
+            })}
+          </ScrollView>
+
+          <View
+            style={{
+              borderTopWidth: 1,
+              borderTopColor: colors.border as string,
+            }}
+          >
+            <Pressable
+              onPress={onNewDisc}
+              disabled={!activeClass}
+              style={({ pressed }) => ({
+                paddingHorizontal: spacing.lg,
+                paddingVertical: spacing.md,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: spacing.sm,
+                opacity: !activeClass ? 0.4 : 1,
+                backgroundColor: pressed
+                  ? (colors.elevated as string)
+                  : 'transparent',
+              })}
+            >
+              <Feather
+                name="plus"
+                size={14}
+                color={colors.primary as string}
+              />
+              <Text
+                variant="body"
+                weight="semibold"
+                color={colors.primary as string}
+              >
+                New disc
               </Text>
             </Pressable>
           </View>
@@ -1191,7 +2183,7 @@ function NewCourseModal({
             gap: spacing.md,
           }}
         >
-          <Overline muted>New course</Overline>
+          <Overline muted>New shelf</Overline>
           <Title family="serif" italic>
             Name the shelf.
           </Title>
@@ -1220,6 +2212,112 @@ function NewCourseModal({
                 size="md"
                 title={busy ? 'Creating…' : 'Create'}
                 disabled={busy || name.trim().length < 2}
+                onPress={submit}
+                fullWidth
+              />
+            </View>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// ───────────────────────── New disc modal ─────────────────────────
+function NewDiscModal({
+  open,
+  activeClass,
+  onClose,
+  onCreated,
+}: {
+  open: boolean;
+  activeClass: ClassWithCounts | null;
+  onClose: () => void;
+  onCreated: (id: string) => void;
+}) {
+  const { colors } = useAppTheme();
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setName('');
+      setErr(null);
+      setBusy(false);
+    }
+  }, [open]);
+
+  const submit = useCallback(async () => {
+    if (!activeClass) return;
+    const clean = name.trim();
+    if (clean.length < 2) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const created = await createTopic({ classId: activeClass.id, name: clean });
+      onCreated(created.id);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  }, [name, activeClass, onCreated]);
+
+  return (
+    <Modal visible={open} transparent animationType="fade" onRequestClose={onClose}>
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: 'rgba(4,20,30,0.72)',
+          alignItems: 'center',
+          justifyContent: 'flex-start',
+          paddingTop: spacing['6xl'],
+          paddingHorizontal: spacing.xl,
+        }}
+      >
+        <View
+          style={{
+            width: '100%',
+            maxWidth: 420,
+            padding: spacing.xl,
+            borderRadius: radii['2xl'],
+            backgroundColor: colors.card as string,
+            borderWidth: 1,
+            borderColor: colors.border as string,
+            gap: spacing.md,
+          }}
+        >
+          <Overline muted>
+            {activeClass ? `NEW DISC · ${activeClass.name}` : 'NEW DISC'}
+          </Overline>
+          <Title family="serif" italic>
+            Name the disc.
+          </Title>
+          <TextField
+            variant="editorial"
+            font="serif"
+            placeholder="e.g. Pythagorean theorem"
+            value={name}
+            onChangeText={setName}
+            autoFocus
+          />
+          {err ? <MonoSm color={palette.alert}>{err}</MonoSm> : null}
+          <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+            <View style={{ flex: 1 }}>
+              <Button
+                variant="tertiary"
+                size="md"
+                title="Cancel"
+                onPress={onClose}
+                fullWidth
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Button
+                variant="shimmer"
+                size="md"
+                title={busy ? 'Creating…' : 'Create'}
+                disabled={!activeClass || busy || name.trim().length < 2}
                 onPress={submit}
                 fullWidth
               />
@@ -1328,7 +2426,7 @@ function NewClipModal({
           <BodySm muted>
             {activeClass
               ? `Creating in ${activeClass.name}.`
-              : 'Pick a course first.'}{' '}
+              : 'Pick a shelf first.'}{' '}
             Templates come from videos you deconstruct in Create.
           </BodySm>
 
@@ -1394,7 +2492,7 @@ function NewClipModal({
 
           {picked ? (
             <View style={{ gap: 6 }}>
-              <Overline muted>TOPIC</Overline>
+              <Overline muted>DISC</Overline>
               <TextField
                 font="serif"
                 placeholder="e.g. Pythagorean theorem"
@@ -1403,7 +2501,7 @@ function NewClipModal({
                 autoFocus
               />
               <MonoSm muted>
-                The backend rewrites the template's script around this topic.
+                The backend rewrites the template's script around this disc.
               </MonoSm>
             </View>
           ) : null}

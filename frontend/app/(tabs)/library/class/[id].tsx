@@ -164,7 +164,7 @@ export default function ClassDetailScreen() {
           </BodySm>
         ) : null}
         <MonoSm muted style={{ marginTop: 10 }}>
-          {`${topicList.length} topics \u00b7 ${totalClips} clips`}
+          {`${topicList.length} discs \u00b7 ${totalClips} clips`}
         </MonoSm>
       </Animated.View>
 
@@ -185,7 +185,7 @@ export default function ClassDetailScreen() {
             italic
             style={{ marginTop: spacing.md, maxWidth: 280 }}
           >
-            This class has no topics.
+            This shelf has no discs.
           </Title>
           <BodySm
             align="center"
@@ -200,7 +200,7 @@ export default function ClassDetailScreen() {
             <Button
               variant="shimmer"
               size="md"
-              title="Start a topic"
+              title="Start a disc"
               onPress={onCreate}
             />
           </View>

@@ -26,6 +26,10 @@ export interface AudioSpec {
   start: number;
   end: number;
   speaker?: string;
+  // Optional music controls: source trim-in (seconds into the source file)
+  // and per-clip gain. Absent = 0 / 1.0 (voice track behaviour).
+  trim_in?: number;
+  volume?: number;
 }
 
 export interface CaptionStyle {
@@ -61,6 +65,15 @@ export interface EffectSpec {
   dur: number;
 }
 
+// Top-middle visualization overlay. Free-form kind + props keeps the schema
+// open — each render just needs to know which variant to mount and when.
+export interface VizScene {
+  kind: string;        // e.g. "pythagorean"
+  start: number;       // seconds
+  end: number;
+  props?: Record<string, unknown>;
+}
+
 export interface TimelineSpec {
   schema_version: number;
   fps: number;
@@ -72,6 +85,7 @@ export interface TimelineSpec {
   captions: CaptionSpec[];
   sfx: SfxSpec[];
   effects: EffectSpec[];
+  viz?: VizScene[];
   style_dna: Record<string, unknown>;
 }
 
@@ -87,5 +101,6 @@ export const EMPTY_TIMELINE: TimelineSpec = {
   captions: [],
   sfx: [],
   effects: [],
+  viz: [],
   style_dna: {},
 };

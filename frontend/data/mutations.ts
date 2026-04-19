@@ -191,6 +191,22 @@ export async function deleteClip(id: string): Promise<void> {
   if (error) throw error;
 }
 
+export async function updateClip(
+  id: string,
+  patch: { title?: string },
+): Promise<Row<'clips'>> {
+  const update: Update<'clips'> = {};
+  if (patch.title !== undefined) update.title = patch.title;
+  const { data, error } = await supabase
+    .from('clips')
+    .update(update)
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
 // ---------- Jobs ----------
 
 export async function createJob(

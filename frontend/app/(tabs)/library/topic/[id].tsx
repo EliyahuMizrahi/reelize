@@ -70,7 +70,7 @@ export default function TopicDetailScreen() {
     return (
       <Screen>
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <MonoSm muted>Loading topic…</MonoSm>
+          <MonoSm muted>Loading disc…</MonoSm>
         </View>
       </Screen>
     );
@@ -80,14 +80,14 @@ export default function TopicDetailScreen() {
     return (
       <Screen>
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <TitleSm muted>Topic not found.</TitleSm>
+          <TitleSm muted>Disc not found.</TitleSm>
         </View>
       </Screen>
     );
   }
 
   const classColor = cls?.color_hex ?? palette.sage;
-  const className = cls?.name ?? 'Class';
+  const className = cls?.name ?? 'Shelf';
 
   // Mention counts
   const mentionByCreator = new Map<string, number>();
@@ -248,7 +248,7 @@ export default function TopicDetailScreen() {
           <Button
             variant="shimmer"
             size="lg"
-            title="New clip for this topic"
+            title="New clip for this disc"
             leading={<Feather name="plus" size={16} color={palette.ink} />}
             onPress={onCreate}
           />

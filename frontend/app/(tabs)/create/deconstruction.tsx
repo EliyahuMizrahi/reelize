@@ -27,6 +27,7 @@ import { analyze, cancelJob } from '@/services/api';
 import { useJobStream } from '@/hooks/useJobStream';
 import { SaveTemplateModal } from '@/components/create/SaveTemplateModal';
 import { clearActiveJob, setActiveJob } from '@/lib/activeJob';
+import { takePendingUpload } from '@/lib/pendingUpload';
 
 /* ===========================================================
    Style DNA card — one metric, fills in as real data arrives
@@ -73,13 +74,21 @@ function DnaCard({
 
 export default function DeconstructionScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ url?: string; jobId?: string }>();
+  const params = useLocalSearchParams<{
+    url?: string;
+    jobId?: string;
+    upload?: string;
+    uploadName?: string;
+  }>();
   const { colors } = useAppTheme();
   const url = (params.url as string) || '';
   const resumeJobId = (params.jobId as string) || '';
+  const isUpload = params.upload === '1';
+  const uploadName = (params.uploadName as string) || '';
 
   const [jobId, setJobId] = useState<string | null>(resumeJobId || null);
   const [startError, setStartError] = useState<string | null>(null);
+  const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
   const cancelledRef = useRef(false);
 
@@ -99,17 +108,33 @@ export default function DeconstructionScreen() {
   // stream. No clip_id — pure deconstruction; the save-as-clip flow comes later.
   useEffect(() => {
     if (resumeJobId) return;
-    if (!url) {
-      setStartError('No URL provided');
+    const pendingVideo = isUpload ? takePendingUpload() : null;
+    if (!url && !pendingVideo) {
+      setStartError(isUpload ? 'No video selected' : 'No URL provided');
       return;
     }
     let cancelled = false;
+    const controller = new AbortController();
+    cancelledRef.current = false;
     (async () => {
       try {
-        const res = await analyze({ url });
+        if (pendingVideo) setUploadPct(0);
+        const res = await analyze({
+          url: url || undefined,
+          video: pendingVideo ?? undefined,
+          onUploadProgress: (pct) => {
+            if (!cancelled) setUploadPct(pct);
+          },
+          signal: controller.signal,
+        });
         if (!cancelled && !cancelledRef.current) {
+          setUploadPct(null);
           setJobId(res.job_id);
-          setActiveJob({ jobId: res.job_id, url, startedAt: Date.now() });
+          setActiveJob({
+            jobId: res.job_id,
+            url: url || (pendingVideo ? `upload://${pendingVideo.name}` : ''),
+            startedAt: Date.now(),
+          });
         }
       } catch (err: unknown) {
         if (cancelled) return;
@@ -118,8 +143,9 @@ export default function DeconstructionScreen() {
     })();
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [url, resumeJobId]);
+  }, [url, resumeJobId, isUpload]);
 
   // Clear the persisted active-job pointer when the backend reaches any
   // terminal state. Leaving it set would make the next Create visit redirect
@@ -273,7 +299,7 @@ export default function DeconstructionScreen() {
                 : 'Reading the source…'}
           </Headline>
           <MonoSm muted numberOfLines={1}>
-            {url}
+            {url || (isUpload ? `upload · ${uploadName || 'video'}` : '')}
           </MonoSm>
         </View>
 
@@ -287,7 +313,13 @@ export default function DeconstructionScreen() {
                 alignItems: 'center',
               }}
             >
-              <Mono color={palette.mist}>{latestMessage || 'Starting…'}</Mono>
+              <Mono color={palette.mist}>
+                {uploadPct != null && !jobId
+                  ? uploadPct < 0
+                    ? 'Uploading…'
+                    : `Uploading ${Math.round(uploadPct * 100)}%`
+                  : latestMessage || 'Starting…'}
+              </Mono>
               <MonoSm muted>{progressPct}%</MonoSm>
             </View>
             <View
