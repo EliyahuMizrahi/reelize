@@ -796,6 +796,7 @@ async def _process_job_inner(
             "audio_manifest": audio_manifest,
             "artifact_prefix": prefix,
             "artifacts": artifacts,
+            "style_dna": style_dna,
         }
         if missing_artifacts:
             final_fields["missing_artifacts"] = missing_artifacts
@@ -1003,11 +1004,35 @@ def _style_dna_from_analysis(video_analysis: dict, audio_manifest: dict) -> dict
     duration = va.get("total_duration_seconds") or (am.get("source") or {}).get("duration") or 0
     cuts_per_sec = (len(segments) / duration) if duration else None
     beats = (am.get("rhythm") or {}).get("beats") or []
+
+    # Voice = speaker turns with narration text, so the generator can rewrite
+    # the script turn-by-turn and preserve pacing. Prefer transcript segments
+    # (speaker-tagged by attach_speakers) since they carry `text`; fall back
+    # to diarization turns (text-less) if transcription didn't run.
+    transcript = am.get("transcript") or {}
+    transcript_segments = transcript.get("segments") or []
+    diarization = am.get("diarization") or {}
+    if transcript_segments:
+        voice = {
+            "num_speakers": diarization.get("num_speakers") or transcript.get("num_speakers"),
+            "turns": [
+                {
+                    "start": s.get("start"),
+                    "end": s.get("end"),
+                    "speaker": s.get("speaker"),
+                    "text": s.get("text"),
+                }
+                for s in transcript_segments
+            ],
+        }
+    else:
+        voice = diarization or am.get("voice") or {}
+
     return {
         "pacing": {"cuts_per_sec": cuts_per_sec, "cut_count": len(segments)},
         "hook": va.get("hook") or {},
         "captions": va.get("caption_style") or {},
-        "voice": am.get("diarization") or am.get("voice") or {},
+        "voice": voice,
         "music": am.get("music") or {},
         "visual": va.get("palette") or va.get("visual") or {},
         "beat_alignment": _compute_beat_alignment(segments, beats),

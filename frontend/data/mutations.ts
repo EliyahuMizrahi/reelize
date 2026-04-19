@@ -227,20 +227,21 @@ export async function createTemplateFromJob(input: {
 }): Promise<Row<'templates'>> {
   const user_id = await requireUserId();
 
-  // Pull the job's manifests + its linked clip's style DNA in one trip each.
-  // (Two round-trips is fine here — template creation is a deliberate action,
-  // not a hot path.)
+  // Pull the job's manifests + style_dna in one trip. The clip lookup below
+  // is only for thumbnail/duration metadata when the source happens to be a
+  // saved clip — style_dna now lives on the job row itself (see worker's
+  // final update), so URL-sourced jobs carry it too.
   const { data: job, error: je } = await supabase
     .from('jobs')
     .select(
-      'id, clip_id, audio_manifest, video_analysis, clip_context, source_url',
+      'id, clip_id, audio_manifest, video_analysis, style_dna, clip_context, source_url',
     )
     .eq('id', input.jobId)
     .maybeSingle();
   if (je) throw je;
   if (!job) throw new Error(`Job ${input.jobId} not found`);
 
-  let style_dna: Row<'templates'>['style_dna'] = null;
+  let style_dna: Row<'templates'>['style_dna'] = job.style_dna ?? null;
   let source_clip_id: string | null = job.clip_id ?? null;
   let thumbnail_color: string | null = null;
   let duration_s: number | null = null;
@@ -252,7 +253,7 @@ export async function createTemplateFromJob(input: {
       .maybeSingle();
     if (ce) throw ce;
     if (clip) {
-      style_dna = clip.style_dna;
+      if (!style_dna) style_dna = clip.style_dna;
       thumbnail_color = clip.thumbnail_color;
       duration_s = clip.duration_s;
     }

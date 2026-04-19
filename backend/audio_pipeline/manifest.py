@@ -131,6 +131,8 @@ def build_manifest(inputs: Inputs, cfg: PipelineConfig) -> dict:
             "num_segments": len(inputs.transcript.segments),
             "num_words": len(inputs.transcript.words),
             "num_speakers": (inputs.diarization.num_speakers if inputs.diarization else 1),
+            "segments": [s.to_dict() for s in inputs.transcript.segments],
+            "words": [w.to_dict() for w in inputs.transcript.words],
         },
         "music": {
             "file": str(music_sections_path),
