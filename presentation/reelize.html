@@ -1,0 +1,840 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Reelize — Product & Architecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,700;1,9..144,500&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #02060F;
+    --bg-2: #010308;
+    --surface: #0D1E30;
+    --surface-2: #18314A;
+    --border: rgba(205,215,222,0.08);
+    --border-strong: #2A3F55;
+    --text: #CDD7DE;
+    --text-dim: #91A5B8;
+    --text-faint: #6E8BA5;
+    --accent: #B0C0CE;
+    --accent-2: #6E8BA5;
+    --accent-3: #91A5B8;
+    --teal-deep: #3F566E;
+    --good: #8FB89E;
+    --warn: #D4A574;
+    --alert: #C47B76;
+    --grad: linear-gradient(135deg, #B0C0CE 0%, #91A5B8 35%, #6E8BA5 70%, #3F566E 100%);
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    --sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --serif: "Fraunces", "Iowan Old Style", Georgia, serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(60% 50% at 20% 15%, rgba(110,139,165,0.10), transparent 70%),
+      radial-gradient(50% 40% at 85% 85%, rgba(145,165,184,0.08), transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .stage {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    z-index: 1;
+  }
+
+  .slide {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 56px 80px 72px;
+    opacity: 0;
+    transform: translateY(16px);
+    transition: opacity 280ms ease, transform 280ms ease;
+    pointer-events: none;
+  }
+  .slide.active {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+  }
+
+  .slide-num {
+    position: absolute;
+    top: 32px;
+    right: 40px;
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    color: var(--text-faint);
+  }
+  .slide-tag {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 12px;
+  }
+  h1.title {
+    font-family: var(--serif);
+    font-size: 140px;
+    font-weight: 500;
+    font-style: italic;
+    letter-spacing: -0.045em;
+    line-height: 1;
+    background: var(--grad);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  h2 { font-family: var(--serif); font-weight: 500; letter-spacing: -0.025em; }
+  .insight-hero { font-family: var(--serif); font-weight: 500; letter-spacing: -0.025em; }
+  .insight-hero em { font-style: italic; }
+  h2 {
+    font-size: 40px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    margin-bottom: 8px;
+  }
+  h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.005em; }
+  .sub {
+    font-size: 18px;
+    color: var(--text-dim);
+    max-width: 820px;
+    margin-bottom: 32px;
+  }
+
+  .progress {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    height: 3px; background: rgba(255,255,255,0.04); z-index: 10;
+  }
+  .progress-bar { height: 100%; background: var(--grad); transition: width 280ms ease; }
+  .hint, .brand {
+    position: fixed; bottom: 14px;
+    font-family: var(--mono); font-size: 11px;
+    color: var(--text-faint); letter-spacing: 0.06em; z-index: 10;
+  }
+  .hint { left: 40px; }
+  .brand { right: 40px; letter-spacing: 0.12em; }
+
+  /* =============== SLIDE 1 — title =============== */
+  .slide--title { justify-content: center; align-items: flex-start; }
+  .title-tagline {
+    margin-top: 28px;
+    font-size: 28px;
+    color: var(--text-dim);
+    letter-spacing: -0.01em;
+    max-width: 760px;
+  }
+  .title-meta {
+    margin-top: 36px;
+    display: flex; gap: 32px;
+    font-family: var(--mono); font-size: 12px;
+    letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--text-faint);
+  }
+  .title-meta strong { color: var(--accent); font-weight: 500; }
+
+  /* =============== SLIDE 2 — problem =============== */
+  .problem {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 40px;
+    align-items: center;
+  }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 22px;
+    padding: 48px 44px;
+    position: relative;
+    overflow: hidden;
+  }
+  .stat-card::before {
+    content: "";
+    position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    background: var(--grad);
+  }
+  .stat-card.muted::before {
+    background: linear-gradient(90deg, #2A3E50, #3F566E);
+  }
+  .stat-label {
+    font-family: var(--mono); font-size: 11px;
+    letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--text-faint); margin-bottom: 14px;
+  }
+  .stat-big {
+    font-family: var(--serif);
+    font-size: 104px; font-weight: 500;
+    letter-spacing: -0.05em; line-height: 1;
+  }
+  .stat-big.grad {
+    background: var(--grad);
+    -webkit-background-clip: text; background-clip: text;
+    color: transparent;
+  }
+  .stat-big.grey { color: #3F566E; }
+  .stat-body { margin-top: 20px; font-size: 16px; color: var(--text-dim); line-height: 1.5; }
+
+  /* =============== SLIDE 3 — insight =============== */
+  .insight {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-start;
+    gap: 28px;
+    max-width: 960px;
+  }
+  .insight-hero {
+    font-size: 56px;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    line-height: 1.1;
+  }
+  .insight-hero em {
+    font-style: normal;
+    background: var(--grad);
+    -webkit-background-clip: text; background-clip: text;
+    color: transparent;
+  }
+  .insight-body {
+    font-size: 18px; color: var(--text-dim); max-width: 720px; line-height: 1.55;
+  }
+  .insight-quote {
+    margin-top: 8px;
+    padding: 16px 22px;
+    border-left: 3px solid var(--accent);
+    font-family: var(--mono); font-size: 13px;
+    color: var(--text-dim); letter-spacing: 0.02em;
+    background: rgba(176,192,206,0.04);
+    border-radius: 0 10px 10px 0;
+  }
+
+  /* =============== SLIDE 4 — user flow =============== */
+  .flow {
+    flex: 1;
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 14px;
+    align-items: center;
+    align-content: center;
+  }
+  .step {
+    padding: 22px 14px 18px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    text-align: center;
+    position: relative;
+  }
+  .step + .step::before {
+    content: "";
+    position: absolute;
+    left: -12px; top: 50%;
+    width: 10px; height: 2px;
+    background: linear-gradient(90deg, rgba(176,192,206,0.5), rgba(110,139,165,0.6));
+    transform: translateY(-50%);
+  }
+  .step + .step::after {
+    content: "";
+    position: absolute;
+    left: -4px; top: 50%;
+    width: 6px; height: 6px;
+    border-top: 2px solid rgba(110,139,165,0.7);
+    border-right: 2px solid rgba(110,139,165,0.7);
+    transform: translateY(-50%) rotate(45deg);
+  }
+  .step .n {
+    position: absolute;
+    top: -14px; left: 50%;
+    transform: translateX(-50%);
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: var(--grad);
+    font-family: var(--mono); font-size: 12px; font-weight: 600;
+    color: #02060F;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .step .t { font-size: 13px; font-weight: 600; margin-top: 6px; margin-bottom: 4px; }
+  .step .d { font-size: 12px; color: var(--text-dim); line-height: 1.4; }
+
+  /* =============== SLIDE 5 — Style DNA =============== */
+  .dna-wrap { flex: 1; display: flex; align-items: center; justify-content: center; gap: 72px; }
+  .dna-center {
+    position: relative;
+    width: 240px; height: 420px;
+    border-radius: 30px;
+    background: linear-gradient(145deg, #18314A, #02060F);
+    border: 1px solid var(--border-strong);
+    box-shadow: 0 30px 80px rgba(176,192,206,0.15), inset 0 1px 0 rgba(255,255,255,0.05);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .dna-center::before {
+    content: "";
+    position: absolute; inset: 12px;
+    border-radius: 20px;
+    background:
+      radial-gradient(ellipse at 50% 30%, rgba(110,139,165,0.25), transparent 60%),
+      linear-gradient(180deg, #0D1E30, #010308);
+  }
+  .dna-center-inner {
+    position: relative; text-align: center;
+  }
+  .dna-center-label {
+    font-family: var(--mono); font-size: 11px;
+    letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--text-dim);
+  }
+  .dna-center-title {
+    font-size: 22px; font-weight: 700; margin-top: 8px;
+    background: var(--grad);
+    -webkit-background-clip: text; background-clip: text;
+    color: transparent;
+  }
+  .dna-center-foot {
+    margin-top: 18px;
+    font-family: var(--mono); font-size: 10px;
+    color: var(--text-faint); letter-spacing: 0.18em;
+  }
+  .dna-tokens { display: grid; grid-template-columns: repeat(2, 240px); gap: 14px; }
+  .token {
+    padding: 18px 20px;
+    border-radius: 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    position: relative; overflow: hidden;
+  }
+  .token::before {
+    content: "";
+    position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: var(--grad);
+  }
+  .token .k {
+    font-family: var(--mono); font-size: 10px;
+    letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--accent); margin-bottom: 4px;
+  }
+  .token .v { font-size: 13px; color: var(--text-dim); line-height: 1.4; }
+
+  /* =============== Pipeline diagrams =============== */
+  .pipe { flex: 1; display: grid; place-items: center; }
+  .pipe svg { width: 100%; max-width: 1240px; height: auto; }
+
+  /* =============== Architecture =============== */
+  .arch {
+    flex: 1;
+    display: grid;
+    grid-template-rows: auto auto auto;
+    gap: 20px;
+    align-content: center;
+  }
+  .layer {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 22px 28px;
+  }
+  .layer-head { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+  .layer-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 16px rgba(176,192,206,0.6); }
+  .layer-head h3 { font-size: 15px; letter-spacing: 0.02em; }
+  .layer-head .meta {
+    font-family: var(--mono); font-size: 11px; color: var(--text-faint);
+    letter-spacing: 0.1em; text-transform: uppercase;
+  }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    padding: 7px 13px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 12px;
+    color: var(--text-dim);
+    font-family: var(--mono);
+  }
+  .chip strong { color: var(--text); font-weight: 500; }
+  .chip.acc { border-color: rgba(176,192,206,0.4); color: var(--accent); }
+  .chip.pink { border-color: rgba(110,139,165,0.4); color: var(--accent-2); }
+  .chip.blue { border-color: rgba(145,165,184,0.4); color: var(--accent-3); }
+
+  /* =============== Status =============== */
+  .status {
+    flex: 1;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 22px;
+    align-content: center;
+  }
+  .status-col {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 24px;
+    min-height: 320px;
+  }
+  .status-col h3 { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; font-size: 16px; }
+  .pill { padding: 3px 9px; border-radius: 999px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; }
+  .pill.ok { background: rgba(143,184,158,0.12); color: var(--good); }
+  .pill.wip { background: rgba(212,165,116,0.12); color: var(--warn); }
+  .pill.next { background: rgba(145,165,184,0.12); color: var(--accent-3); }
+  .status-col ul { list-style: none; display: flex; flex-direction: column; gap: 11px; }
+  .status-col li {
+    font-size: 13px; color: var(--text-dim);
+    padding-left: 16px; position: relative; line-height: 1.45;
+  }
+  .status-col li::before {
+    content: ""; position: absolute; left: 0; top: 8px;
+    width: 5px; height: 5px; border-radius: 50%;
+    background: var(--accent);
+  }
+
+  /* SVG shared */
+  .node-rect { fill: var(--surface); stroke: var(--border-strong); stroke-width: 1; }
+  .node-rect.acc { stroke: rgba(176,192,206,0.55); }
+  .node-rect.pink { stroke: rgba(110,139,165,0.55); }
+  .node-rect.blue { stroke: rgba(145,165,184,0.55); }
+  .node-rect.out { fill: #18314A; stroke: rgba(176,192,206,0.8); }
+  .node-label { fill: #CDD7DE; font-family: var(--sans); font-weight: 600; font-size: 13px; }
+  .node-sub { fill: #91A5B8; font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; }
+  .link { stroke: rgba(176,192,206,0.4); stroke-width: 1.5; fill: none; }
+  .link.pink { stroke: rgba(110,139,165,0.45); }
+  .link.blue { stroke: rgba(145,165,184,0.45); }
+  .link.loop { stroke: rgba(212,165,116,0.55); stroke-dasharray: 5 4; }
+  .group-bg { fill: rgba(255,255,255,0.02); stroke: rgba(255,255,255,0.06); stroke-dasharray: 4 4; rx: 14; }
+  .group-label { fill: #6E8BA5; font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; }
+
+  .legend { display: flex; gap: 18px; margin-top: 18px; font-family: var(--mono); font-size: 11px; color: var(--text-faint); letter-spacing: 0.05em; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+
+  .slide--wide { padding: 40px 60px 60px; }
+
+  /* =============== Challenges =============== */
+  .challenge {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 22px 26px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .ch-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    display: inline-block;
+    padding: 3px 9px;
+    border-radius: 999px;
+    align-self: flex-start;
+  }
+  .ch-label.prob { color: var(--warn); background: rgba(212,165,116,0.12); }
+  .ch-label.sol  { color: var(--good); background: rgba(143,184,158,0.12); }
+  .ch-title { font-size: 16px; font-weight: 600; margin-top: 2px; letter-spacing: -0.005em; }
+  .ch-body  { font-size: 13px; color: var(--text-dim); line-height: 1.5; }
+  .ch-body code { color: var(--text); font-family: var(--mono); font-size: 12px; }
+  .ch-divider { height: 1px; background: var(--border); margin: 6px 0 2px; }
+</style>
+</head>
+<body>
+
+<div class="stage" id="stage">
+
+  <!-- ============= 1. TITLE ============= -->
+  <section class="slide slide--title active" data-slide="1">
+    <div class="slide-num">01 / 10</div>
+    <div class="slide-tag">Product · Architecture · Pipeline</div>
+    <h1 class="title">Reelize.</h1>
+    <div class="title-tagline">Borrow the retention structure of a Short that already works. Teach anything.</div>
+    <div class="title-meta">
+      <span><strong>Built</strong> in 48 hours</span>
+      <span><strong>Stack</strong> 7 services · 1 pipeline</span>
+      <span><strong>Team</strong> 2 engineers</span>
+    </div>
+  </section>
+
+  <!-- ============= 2. THE PROBLEM ============= -->
+  <section class="slide" data-slide="2">
+    <div class="slide-num">02 / 10</div>
+    <div class="slide-tag">The Problem</div>
+    <h2>Attention is engineered — and educators don't have the blueprint.</h2>
+    <div class="sub">TikTok and Shorts creators have reverse-engineered human attention. Everyone else is still losing viewers in the opening beat.</div>
+
+    <div class="problem">
+      <div class="stat-card">
+        <div class="stat-label">Short-form creators</div>
+        <div class="stat-big grad">60s</div>
+        <div class="stat-body">of uninterrupted attention — pacing, hooks, and beat structures tuned to keep you scrolling and watching straight through.</div>
+      </div>
+      <div class="stat-card muted">
+        <div class="stat-label">Educational content</div>
+        <div class="stat-big grey">3s</div>
+        <div class="stat-body">to lose the viewer. Complex ideas die in the opening moments because the format wasn't designed for retention.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============= 3. THE INSIGHT ============= -->
+  <section class="slide" data-slide="3">
+    <div class="slide-num">03 / 10</div>
+    <div class="slide-tag">The Insight</div>
+    <h2>Retention is structural, not stylistic.</h2>
+
+    <div class="insight">
+      <div class="insight-hero">
+        What if you could <em>borrow</em> the exact retention structure of a video that already works — and use it to explain something hard?
+      </div>
+      <div class="insight-body">
+        Hooks, beat drops, scene rhythm, voice cadence — once you capture them, the "vibe" follows. Reelize reverse-engineers a Short you love and generates a brand-new video on that scaffold about any topic you choose.
+      </div>
+      <div class="insight-quote">
+        "The models are commodities. The pipeline is the product."
+      </div>
+    </div>
+  </section>
+
+  <!-- ============= 4. FULL PIPELINE / USER FLOW ============= -->
+  <section class="slide" data-slide="4">
+    <div class="slide-num">04 / 10</div>
+    <div class="slide-tag">Full Pipeline</div>
+    <h2>From reference video to rendered Short.</h2>
+    <div class="sub">The user does two things: pick a reference, pick a topic. Everything else runs asynchronously in the background.</div>
+
+    <div class="flow">
+      <div class="step"><div class="n">1</div><div class="t">Paste URL</div><div class="d">TikTok · Reel · YT Short</div></div>
+      <div class="step"><div class="n">2</div><div class="t">Deconstruct</div><div class="d">Audio + video analysis</div></div>
+      <div class="step"><div class="n">3</div><div class="t">Save Template</div><div class="d">Reusable Style DNA</div></div>
+      <div class="step"><div class="n">4</div><div class="t">Pick Topic</div><div class="d">Enter new subject</div></div>
+      <div class="step"><div class="n">5</div><div class="t">Generate</div><div class="d">Script · voice · render</div></div>
+      <div class="step"><div class="n">6</div><div class="t">Publish</div><div class="d">MP4 in library</div></div>
+    </div>
+  </section>
+
+  <!-- ============= 5. STYLE DNA ============= -->
+  <section class="slide" data-slide="5">
+    <div class="slide-num">05 / 10</div>
+    <div class="slide-tag">The Core Concept</div>
+    <h2>Style DNA.</h2>
+    <div class="sub">Every reference video is deconstructed into a 6-token fingerprint — the reusable signature of <em>how</em> the creator holds attention.</div>
+
+    <div class="dna-wrap">
+      <div class="dna-center">
+        <div class="dna-center-inner">
+          <div class="dna-center-label">Reference Video</div>
+          <div class="dna-center-title">Style DNA</div>
+          <div class="dna-center-foot">6 TOKENS · REUSABLE</div>
+        </div>
+      </div>
+      <div class="dna-tokens">
+        <div class="token"><div class="k">Pacing</div><div class="v">Scene cadence, cuts per second, rhythm alignment</div></div>
+        <div class="token"><div class="k">Hook</div><div class="v">Opening pattern that earns the first 2 seconds</div></div>
+        <div class="token"><div class="k">Captions</div><div class="v">Font, placement, timing, emphasis style</div></div>
+        <div class="token"><div class="k">Voice</div><div class="v">Cloned speaker(s), tone, delivery energy</div></div>
+        <div class="token"><div class="k">Music</div><div class="v">Track identity, beat grid, energy envelope</div></div>
+        <div class="token"><div class="k">Visual</div><div class="v">Keyframes, color palette, composition</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============= 6. DECONSTRUCTION ============= -->
+  <section class="slide slide--wide" data-slide="6">
+    <div class="slide-num">06 / 10</div>
+    <div class="slide-tag">Pipeline 1</div>
+    <h2>Deconstruction.</h2>
+    <div class="sub">The reference splits into audio and visual branches that run in parallel, then converge into a Style DNA manifest + per-speaker voice samples.</div>
+
+    <div class="pipe">
+      <svg viewBox="0 0 1240 460" xmlns="http://www.w3.org/2000/svg">
+        <rect x="200" y="40" width="560" height="170" class="group-bg" rx="14" />
+        <text x="220" y="60" class="group-label">AUDIO BRANCH</text>
+
+        <rect x="200" y="250" width="560" height="170" class="group-bg" rx="14" />
+        <text x="220" y="270" class="group-label">VISUAL BRANCH</text>
+
+        <rect x="30" y="195" width="140" height="70" rx="12" class="node-rect acc" />
+        <text x="100" y="225" text-anchor="middle" class="node-label">Reference</text>
+        <text x="100" y="245" text-anchor="middle" class="node-sub">URL / UPLOAD</text>
+
+        <path d="M 170 230 C 190 230, 190 125, 215 125" class="link" />
+        <path d="M 170 230 C 190 230, 190 335, 215 335" class="link" />
+
+        <rect x="215" y="90" width="120" height="70" rx="12" class="node-rect pink" />
+        <text x="275" y="120" text-anchor="middle" class="node-label">Demucs</text>
+        <text x="275" y="140" text-anchor="middle" class="node-sub">STEM SPLIT</text>
+
+        <rect x="355" y="90" width="120" height="70" rx="12" class="node-rect pink" />
+        <text x="415" y="120" text-anchor="middle" class="node-label">Whisper</text>
+        <text x="415" y="140" text-anchor="middle" class="node-sub">TRANSCRIBE</text>
+
+        <rect x="495" y="90" width="120" height="70" rx="12" class="node-rect pink" />
+        <text x="555" y="115" text-anchor="middle" class="node-label">Shazam</text>
+        <text x="555" y="133" text-anchor="middle" class="node-label" style="font-size:11px;">+ librosa</text>
+        <text x="555" y="150" text-anchor="middle" class="node-sub">MUSIC · BEAT GRID</text>
+
+        <rect x="635" y="90" width="120" height="70" rx="12" class="node-rect pink" />
+        <text x="695" y="120" text-anchor="middle" class="node-label">pyannote</text>
+        <text x="695" y="140" text-anchor="middle" class="node-sub">DIARIZE</text>
+
+        <path d="M 335 125 L 355 125" class="link pink" />
+        <path d="M 475 125 L 495 125" class="link pink" />
+        <path d="M 615 125 L 635 125" class="link pink" />
+
+        <rect x="215" y="300" width="180" height="70" rx="12" class="node-rect blue" />
+        <text x="305" y="330" text-anchor="middle" class="node-label">Gemini Scene Detect</text>
+        <text x="305" y="350" text-anchor="middle" class="node-sub">MULTI-PASS KEYFRAMES</text>
+
+        <rect x="415" y="300" width="180" height="70" rx="12" class="node-rect blue" />
+        <text x="505" y="330" text-anchor="middle" class="node-label">Frame Extract</text>
+        <text x="505" y="350" text-anchor="middle" class="node-sub">imagehash · PIL</text>
+
+        <rect x="615" y="300" width="140" height="70" rx="12" class="node-rect blue" />
+        <text x="685" y="328" text-anchor="middle" class="node-label">Hero Frame</text>
+        <text x="685" y="348" text-anchor="middle" class="node-sub">+ PALETTE</text>
+
+        <path d="M 395 335 L 415 335" class="link blue" />
+        <path d="M 595 335 L 615 335" class="link blue" />
+
+        <path d="M 755 125 C 820 125, 820 215, 870 215" class="link pink" />
+        <path d="M 755 335 C 820 335, 820 245, 870 245" class="link blue" />
+
+        <rect x="870" y="175" width="200" height="110" rx="14" class="node-rect out" />
+        <text x="970" y="210" text-anchor="middle" class="node-label" style="font-size:15px;">Style DNA</text>
+        <text x="970" y="232" text-anchor="middle" class="node-sub">6-TOKEN MANIFEST</text>
+        <text x="970" y="258" text-anchor="middle" class="node-sub" style="fill:var(--text-dim);">+ voice samples</text>
+
+        <path d="M 1070 230 L 1110 230" class="link" />
+        <rect x="1110" y="195" width="110" height="70" rx="12" class="node-rect acc" />
+        <text x="1165" y="225" text-anchor="middle" class="node-label">Template</text>
+        <text x="1165" y="245" text-anchor="middle" class="node-sub">REUSABLE</text>
+      </svg>
+    </div>
+
+    <div class="legend">
+      <span><i style="background:rgba(110,139,165,0.55)"></i>Audio pipeline</span>
+      <span><i style="background:rgba(145,165,184,0.55)"></i>Video pipeline</span>
+      <span><i style="background:rgba(176,192,206,0.55)"></i>Output artifact</span>
+    </div>
+  </section>
+
+  <!-- ============= 7. GENERATION ============= -->
+  <section class="slide slide--wide" data-slide="7">
+    <div class="slide-num">07 / 10</div>
+    <div class="slide-tag">Pipeline 2</div>
+    <h2>Generation.</h2>
+    <div class="sub">Template + topic feeds a serialized pipeline that writes, voices, composes, renders, and grades — refining until the render scores ≥ 0.75 against the Style DNA.</div>
+
+    <div class="pipe">
+      <svg viewBox="0 0 1240 380" xmlns="http://www.w3.org/2000/svg">
+        <rect x="20" y="60" width="140" height="60" rx="12" class="node-rect acc" />
+        <text x="90" y="85" text-anchor="middle" class="node-label">Template</text>
+        <text x="90" y="103" text-anchor="middle" class="node-sub">STYLE DNA</text>
+
+        <rect x="20" y="230" width="140" height="60" rx="12" class="node-rect acc" />
+        <text x="90" y="255" text-anchor="middle" class="node-label">Topic</text>
+        <text x="90" y="273" text-anchor="middle" class="node-sub">USER INPUT</text>
+
+        <rect x="210" y="140" width="150" height="70" rx="12" class="node-rect pink" />
+        <text x="285" y="170" text-anchor="middle" class="node-label">Script Rewrite</text>
+        <text x="285" y="190" text-anchor="middle" class="node-sub">GEMINI</text>
+
+        <rect x="400" y="140" width="150" height="70" rx="12" class="node-rect pink" />
+        <text x="475" y="170" text-anchor="middle" class="node-label">Voice Clone + TTS</text>
+        <text x="475" y="190" text-anchor="middle" class="node-sub">ELEVENLABS</text>
+
+        <rect x="590" y="140" width="150" height="70" rx="12" class="node-rect blue" />
+        <text x="665" y="170" text-anchor="middle" class="node-label">Timeline Compose</text>
+        <text x="665" y="190" text-anchor="middle" class="node-sub">TIMED TO BEAT GRID</text>
+
+        <rect x="780" y="140" width="150" height="70" rx="12" class="node-rect blue" />
+        <text x="855" y="170" text-anchor="middle" class="node-label">Remotion Render</text>
+        <text x="855" y="190" text-anchor="middle" class="node-sub">HEADLESS CHROMIUM</text>
+
+        <rect x="970" y="140" width="150" height="70" rx="12" class="node-rect out" />
+        <text x="1045" y="170" text-anchor="middle" class="node-label">Verify</text>
+        <text x="1045" y="190" text-anchor="middle" class="node-sub">GEMINI · SCORE ≥ 0.75</text>
+
+        <path d="M 160 90 C 185 90, 185 170, 210 170" class="link" />
+        <path d="M 160 260 C 185 260, 185 180, 210 180" class="link" />
+
+        <path d="M 360 175 L 400 175" class="link pink" />
+        <path d="M 550 175 L 590 175" class="link pink" />
+        <path d="M 740 175 L 780 175" class="link blue" />
+        <path d="M 930 175 L 970 175" class="link blue" />
+
+        <path d="M 1045 210 L 1045 260" class="link" />
+        <rect x="960" y="260" width="170" height="60" rx="12" class="node-rect acc" />
+        <text x="1045" y="285" text-anchor="middle" class="node-label">Final MP4</text>
+        <text x="1045" y="303" text-anchor="middle" class="node-sub">UPLOAD · LIBRARY</text>
+
+        <path d="M 1045 140 C 1045 60, 665 60, 665 140" class="link loop" />
+        <text x="855" y="55" text-anchor="middle" class="node-sub" style="fill:var(--warn);">REFINE LOOP · BELOW THRESHOLD</text>
+      </svg>
+    </div>
+
+    <div class="legend">
+      <span><i style="background:rgba(110,139,165,0.55)"></i>Script · Voice</span>
+      <span><i style="background:rgba(145,165,184,0.55)"></i>Compose · Render</span>
+      <span><i style="background:rgba(212,165,116,0.55)"></i>Verify · Refine loop</span>
+    </div>
+  </section>
+
+  <!-- ============= 8. ARCHITECTURE ============= -->
+  <section class="slide" data-slide="8">
+    <div class="slide-num">08 / 10</div>
+    <div class="slide-tag">System Architecture</div>
+    <h2>Three layers, one job queue.</h2>
+
+    <div class="arch">
+      <div class="layer">
+        <div class="layer-head"><div class="layer-dot"></div><h3>Client</h3><span class="meta">UNIVERSAL · iOS · ANDROID · WEB</span></div>
+        <div class="chips">
+          <span class="chip"><strong>Expo / React Native</strong></span>
+          <span class="chip">expo-router</span>
+          <span class="chip">Reanimated</span>
+          <span class="chip acc">Supabase Realtime</span>
+          <span class="chip acc">Signed-URL upload &amp; playback</span>
+        </div>
+      </div>
+
+      <div class="layer">
+        <div class="layer-head"><div class="layer-dot" style="background:var(--accent-2)"></div><h3>API &amp; Workers</h3><span class="meta">PYTHON · SERIALIZED JOB QUEUE</span></div>
+        <div class="chips">
+          <span class="chip"><strong>FastAPI + Uvicorn</strong></span>
+          <span class="chip">asyncio semaphore (GPU serialization)</span>
+          <span class="chip">Docker · Chromium runtime</span>
+          <span class="chip pink">analysis worker</span>
+          <span class="chip pink">generation worker</span>
+          <span class="chip">JWT auth · Postgres-persisted jobs</span>
+        </div>
+      </div>
+
+      <div class="layer">
+        <div class="layer-head"><div class="layer-dot" style="background:var(--accent-3)"></div><h3>Data &amp; External Services</h3><span class="meta">STORAGE · REALTIME · AI</span></div>
+        <div class="chips">
+          <span class="chip blue"><strong>Supabase</strong> Postgres · Auth · Realtime</span>
+          <span class="chip blue">Cloudflare R2 · media</span>
+          <span class="chip pink">Gemini · script · scene · verify</span>
+          <span class="chip pink">ElevenLabs · voice clone + TTS</span>
+          <span class="chip">Demucs · Whisper · Shazam · librosa · pyannote</span>
+          <span class="chip">Remotion · React render</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============= 9. CHALLENGES ============= -->
+  <section class="slide" data-slide="9">
+    <div class="slide-num">09 / 10</div>
+    <div class="slide-tag">Challenges</div>
+    <h2>What broke — and how we fixed it.</h2>
+    <div class="sub">The 48-hour story in four beats. Each was a near-project-killer.</div>
+
+    <div style="flex:1;display:grid;grid-template-columns:repeat(2,1fr);grid-template-rows:repeat(2,1fr);gap:20px;">
+
+      <div class="challenge">
+        <span class="ch-label prob">Problem</span>
+        <div class="ch-title">Seven services, seven data shapes.</div>
+        <div class="ch-body">Demucs, Whisper, Shazam, librosa, pyannote, Gemini, ElevenLabs — each outputs data in its own shape and timing space. Half of the 48 hours went into the glue.</div>
+        <div class="ch-divider"></div>
+        <span class="ch-label sol">Solution</span>
+        <div class="ch-body">A single shared manifest every stage reads from and writes into. The models were commodities — orchestration was the product.</div>
+      </div>
+
+      <div class="challenge">
+        <span class="ch-label prob">Problem</span>
+        <div class="ch-title">GPU contention melted memory.</div>
+        <div class="ch-body">Running Demucs + Whisper + pyannote + Gemini concurrently on one machine caused instant OOM under any real load.</div>
+        <div class="ch-divider"></div>
+        <span class="ch-label sol">Solution</span>
+        <div class="ch-body">Serialized job queue. Every request becomes a Postgres <code>jobs</code> row; an asyncio semaphore gates workers so only one GPU-heavy job runs at a time. Jobs survive restarts.</div>
+      </div>
+
+      <div class="challenge">
+        <span class="ch-label prob">Problem</span>
+        <div class="ch-title">Script wouldn't land on the beat.</div>
+        <div class="ch-body">Narration generated from the transcript alone ignored the reference video's emphasis pattern — the thing that makes Shorts feel tight.</div>
+        <div class="ch-divider"></div>
+        <span class="ch-label sol">Solution</span>
+        <div class="ch-body">Feed the beat grid and energy envelope directly into Gemini's prompt so script emphasis lands on the existing drops.</div>
+      </div>
+
+      <div class="challenge">
+        <span class="ch-label prob">Problem</span>
+        <div class="ch-title">Render timing drifted by milliseconds.</div>
+        <div class="ch-body">Voice, music, and footage came from different clocks. Single-pass scene detection missed half-second cuts on fast-edited Shorts.</div>
+        <div class="ch-divider"></div>
+        <span class="ch-label sol">Solution</span>
+        <div class="ch-body">Normalize every timing source to one clock before Remotion composition. Multi-pass keyframe refinement with pixel-level diffs for scene boundaries.</div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ============= 10. END ============= -->
+  <section class="slide slide--title" data-slide="10">
+    <div class="slide-num">10 / 10</div>
+    <div class="slide-tag">Fin</div>
+    <h1 class="title">Thank you.</h1>
+    <div class="title-tagline">Retention is structural. Borrow the blueprint, teach anything.</div>
+    <div class="title-meta">
+      <span><strong>Reelize</strong> · Hack Brooklyn</span>
+      <span><strong>Built by</strong> Eliyahu Mizrahi · Isaac Sasson</span>
+    </div>
+  </section>
+
+</div>
+
+<div class="progress"><div class="progress-bar" id="bar" style="width:10%"></div></div>
+<div class="hint">← / → · Space · Home / End</div>
+<div class="brand">REELIZE</div>
+
+<script>
+(function() {
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const bar = document.getElementById('bar');
+  let i = 0;
+
+  function show(n) {
+    n = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach((s, idx) => s.classList.toggle('active', idx === n));
+    bar.style.width = ((n + 1) / slides.length * 100) + '%';
+    i = n;
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') { e.preventDefault(); show(i + 1); }
+    else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); show(i - 1); }
+    else if (e.key === 'Home') { show(0); }
+    else if (e.key === 'End') { show(slides.length - 1); }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('a, button, input')) return;
+    const x = e.clientX / window.innerWidth;
+    show(x < 0.35 ? i - 1 : i + 1);
+  });
+})();
+</script>
+</body>
+</html>
