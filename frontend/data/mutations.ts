@@ -81,6 +81,8 @@ export async function createClass(input: {
     .select()
     .single();
   if (error) throw error;
+  await logActivity('created_class', data.id, `Created class: ${data.name}`)
+    .catch(() => {});
   return data;
 }
 
@@ -133,6 +135,8 @@ export async function createTopic(input: {
     .select()
     .single();
   if (error) throw error;
+  await logActivity('created_topic', data.id, `Created topic: ${data.name}`)
+    .catch(() => {});
   return data;
 }
 
@@ -288,6 +292,8 @@ export async function createTemplateFromJob(input: {
     .select()
     .single();
   if (error) throw error;
+  await logActivity('saved', data.id, `Saved template: ${data.name}`)
+    .catch(() => {});
   return data;
 }
 

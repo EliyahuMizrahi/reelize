@@ -201,40 +201,49 @@ export default function SettingsScreen() {
         </Section>
 
         {/* Save */}
-        <Animated.View
-          entering={ENTER.fadeUp(240)}
-          style={{ alignItems: 'center', marginBottom: spacing['2xl'] }}
-        >
-          <Button
-            variant="primary"
-            size="lg"
-            title={saving ? 'Saving…' : 'Save changes'}
-            disabled={!isDirty || saving}
-            onPress={() => {
-              tapHeavy();
-              handleSave();
-            }}
-            style={{ alignSelf: 'center', minWidth: 220 }}
-          />
-        </Animated.View>
-
-        {/* Sign out */}
-        <Animated.View
-          entering={ENTER.fadeUp(380)}
-          style={{ alignItems: 'center', marginTop: spacing.xl, marginBottom: spacing['3xl'] }}
-        >
-          <Button
-            variant="danger"
-            size="lg"
-            title="Sign out"
-            onPress={() => {
-              tapHeavy();
-              logout();
-            }}
-            style={{ alignSelf: 'center', minWidth: 220 }}
-          />
-        </Animated.View>
+        {isDirty ? (
+          <Animated.View
+            entering={ENTER.fadeUp(240)}
+            style={{ alignItems: 'center', marginBottom: spacing['2xl'] }}
+          >
+            <Button
+              variant="primary"
+              size="lg"
+              title={saving ? 'Saving…' : 'Save changes'}
+              disabled={saving}
+              onPress={() => {
+                tapHeavy();
+                handleSave();
+              }}
+              style={{ alignSelf: 'center', minWidth: 220 }}
+            />
+          </Animated.View>
+        ) : null}
       </ScrollView>
+
+      {/* Sign out — pinned 30px above the tab bar (86px tall) */}
+      <Animated.View
+        entering={ENTER.fadeUp(380)}
+        pointerEvents="box-none"
+        style={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          bottom: 86 + 30,
+          alignItems: 'center',
+        }}
+      >
+        <Button
+          variant="danger"
+          size="lg"
+          title="Sign out"
+          onPress={() => {
+            tapHeavy();
+            logout();
+          }}
+          style={{ alignSelf: 'center', minWidth: 220 }}
+        />
+      </Animated.View>
     </Screen>
   );
 }

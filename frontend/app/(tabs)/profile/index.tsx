@@ -13,6 +13,7 @@ import {
   MonoSm,
   Overline,
   BodySm,
+  Headline,
 } from '@/components/ui/Text';
 import { Surface, Divider } from '@/components/ui/Surface';
 import { IconButton } from '@/components/ui/IconButton';
@@ -116,10 +117,7 @@ export default function DashboardScreen() {
 
         {/* Dashboard headline */}
         <Animated.View entering={ENTER.fadeUp(80)} style={{ marginBottom: spacing['2xl'] }}>
-          <Overline muted>Dashboard</Overline>
-          <BodySm italic family="serif" muted style={{ marginTop: 4 }}>
-            a quiet look at what you've built.
-          </BodySm>
+          <Headline>Dashboard</Headline>
         </Animated.View>
 
         {/* Stats row */}
