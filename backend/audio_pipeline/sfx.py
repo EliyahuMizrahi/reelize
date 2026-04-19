@@ -19,7 +19,7 @@ from pathlib import Path
 import librosa
 import numpy as np
 import soundfile as sf
-from scipy.signal import find_peaks
+from scipy.signal import correlate as scipy_correlate, find_peaks
 
 from .config import PipelineConfig
 from .download import download_song
@@ -30,6 +30,8 @@ log = logging.getLogger(__name__)
 _N_FFT = 2048
 _HOP_STFT = 512
 _SEARCH_MARGIN = 5.0   # seconds of slack around Shazam's reported offset
+_ALIGN_REF_SECONDS = 5.0   # length of the cross-correlation reference window
+_MIN_NORMALIZED_CORR = 0.3   # below this we can't trust the alignment
 
 
 @dataclass
@@ -52,38 +54,103 @@ class SFXEvent:
         }
 
 
+def _pick_highest_rms_window(
+    audio: np.ndarray, sr: int, window_seconds: float
+) -> tuple[int, np.ndarray]:
+    """Scan `audio` in non-overlapping windows of `window_seconds` and return
+    `(start_sample, window_samples)` for the window with the highest RMS.
+
+    Picking the loudest window dodges silent/ambient intros that correlate
+    poorly against a studio master.
+    """
+    w = int(window_seconds * sr)
+    if len(audio) <= w:
+        return 0, audio
+    best_start = 0
+    best_rms = -1.0
+    # Step by half the window so loud moments aren't straddling boundaries.
+    step = max(1, w // 2)
+    for start in range(0, len(audio) - w + 1, step):
+        win = audio[start:start + w]
+        rms = float(np.sqrt(np.mean(win * win)))
+        if rms > best_rms:
+            best_rms = rms
+            best_start = start
+    return best_start, audio[best_start:best_start + w]
+
+
 def _align_section(
     section: MusicSection,
     song_path: Path,
     y_bg_full: np.ndarray,
     sr: int,
-) -> tuple[float, float, float]:
-    """Cross-correlate a section against the downloaded song; return (exact_offset, correction, gain)."""
+) -> tuple[float | None, float | None]:
+    """Cross-correlate a section against the downloaded song.
+
+    Returns `(exact_offset, correction)`. If the peak normalized correlation is
+    below `_MIN_NORMALIZED_CORR`, returns `(None, None)` so the caller can skip
+    SFX detection in that section instead of trusting a garbage alignment.
+    """
     bg_s = int(section.video_start * sr)
     bg_e = int(section.video_end * sr)
     bg_chunk = y_bg_full[bg_s:bg_e]
 
-    search_start = max(0, section.song_offset_start - _SEARCH_MARGIN)
+    search_start = max(0.0, section.song_offset_start - _SEARCH_MARGIN)
     search_dur = (section.video_end - section.video_start) + 2 * _SEARCH_MARGIN
     y_song_wide, _ = librosa.load(
         str(song_path), sr=sr, mono=True,
         offset=search_start, duration=search_dur,
     )
 
-    ref_len = min(len(bg_chunk), sr * 5)
-    corr = np.correlate(y_song_wide, bg_chunk[:ref_len], mode="valid")
-    best = int(np.argmax(np.abs(corr)))
-    exact_offset = search_start + best / sr
+    if len(bg_chunk) == 0 or len(y_song_wide) == 0:
+        log.warning(
+            "Empty audio in align for '%s - %s'; skipping",
+            section.artist, section.song,
+        )
+        return None, None
 
-    # Gain match: align the song's RMS to the BG chunk's RMS.
-    y_song, _ = librosa.load(
-        str(song_path), sr=sr, mono=True,
-        offset=exact_offset, duration=len(bg_chunk) / sr,
+    # Pick the loudest 5s window in the BG chunk as the reference — silent
+    # intros correlate with anything.
+    ref_offset_samples, ref = _pick_highest_rms_window(
+        bg_chunk, sr, _ALIGN_REF_SECONDS,
     )
-    n = min(len(bg_chunk), len(y_song))
-    rms_bg = float(np.sqrt(np.mean(bg_chunk[:n] ** 2)) + 1e-10)
-    rms_song = float(np.sqrt(np.mean(y_song[:n] ** 2)) + 1e-10)
-    return exact_offset, exact_offset - section.song_offset_start, rms_bg / rms_song
+    ref_len = len(ref)
+    if ref_len == 0 or ref_len > len(y_song_wide):
+        log.warning(
+            "Reference window too short vs song for '%s - %s'; skipping",
+            section.artist, section.song,
+        )
+        return None, None
+
+    # FFT-based cross-correlation — O(n log n) vs O(n*m) for direct.
+    # scipy's correlate matches numpy semantics; with mode='full' the zero-lag
+    # index is `len(ref) - 1`. We use 'full' + find the peak, then normalize.
+    corr = scipy_correlate(y_song_wide, ref, mode="full", method="fft")
+
+    # Normalized peak — divide by sqrt(sum(a^2) * sum(b^2)) over the overlap
+    # at the peak lag. For speed we approximate with the global norms (the
+    # windows are long so the difference is small).
+    denom = float(
+        np.sqrt(np.sum(y_song_wide * y_song_wide) * np.sum(ref * ref)) + 1e-12
+    )
+    corr_n = np.abs(corr) / denom
+    best = int(np.argmax(corr_n))
+    peak_norm = float(corr_n[best])
+    if peak_norm < _MIN_NORMALIZED_CORR:
+        log.warning(
+            "Low-confidence alignment for '%s - %s' (peak_norm=%.3f < %.2f); "
+            "skipping SFX detection in this section",
+            section.artist, section.song, peak_norm, _MIN_NORMALIZED_CORR,
+        )
+        return None, None
+
+    # Lag in samples: scipy 'full' mode → zero lag is at index len(ref)-1.
+    lag = best - (ref_len - 1)
+    # The reference was cut from the BG at `ref_offset_samples` into the
+    # section, so subtract that back out to recover the song offset.
+    exact_offset = search_start + (lag - ref_offset_samples) / sr
+    correction = exact_offset - section.song_offset_start
+    return exact_offset, correction
 
 
 def _predict_song_onsets(
@@ -147,10 +214,13 @@ def extract_sfx(
             log.warning("Skipping alignment for '%s - %s' (download failed)", sec.artist, sec.song)
             continue
         sec.full_song_path = str(song_path)
-        exact_offset, correction, gain = _align_section(sec, song_path, y_bg_full, sr)
+        exact_offset, correction = _align_section(sec, song_path, y_bg_full, sr)
+        if exact_offset is None:
+            # Low-confidence or empty alignment — leave exact_offset/correction None
+            # so downstream stages skip SFX detection for this section.
+            continue
         sec.exact_offset = round(exact_offset, 3)
         sec.alignment_correction = round(correction, 3)
-        sec.gain = round(gain, 3)
         log.info(
             "Aligned '%s - %s': offset=%.3fs (correction %+.3fs)",
             sec.artist, sec.song, exact_offset, correction,

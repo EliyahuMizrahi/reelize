@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, ScrollView, Pressable, Platform } from 'react-native';
-import { useRouter } from 'expo-router';
+import { Redirect, useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import Animated from 'react-native-reanimated';
@@ -85,6 +85,9 @@ function buildSections(sampleClassId: string, sampleTopicId: string, sampleClipI
 }
 
 export default function AuditIndexScreen() {
+  // Internal route-walker — never reachable in production builds.
+  if (!__DEV__) return <Redirect href="/" />;
+
   const router = useRouter();
   const { colors } = useAppTheme();
 

@@ -6,7 +6,6 @@ import {
   useWindowDimensions,
   StyleSheet,
 } from 'react-native';
-import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import Animated from 'react-native-reanimated';
 
@@ -189,7 +188,6 @@ function LabPanel({ cfg, included, onToggle, style }: LabPanelProps) {
 
 // ───────────────────────── Create (web) ─────────────────────────
 export default function CreateWebScreen() {
-  const router = useRouter();
   const { colors, isDark } = useAppTheme();
   const { width } = useWindowDimensions();
 
@@ -431,7 +429,11 @@ export default function CreateWebScreen() {
           title="Generate lesson"
           haptic={false}
           trailing={<Feather name="arrow-right" size={16} color={palette.ink} />}
-          onPress={() => router.push('/player/krebs-cycle-01' as any)}
+          onPress={() =>
+            window.alert(
+              'Generation is available on mobile.\n\nOpen Reelize on your phone to run the full lesson pipeline — the web workbench is preview-only.',
+            )
+          }
           disabled={!url || !topic}
         />
       </View>

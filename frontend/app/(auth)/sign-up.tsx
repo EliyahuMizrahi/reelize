@@ -12,8 +12,13 @@ import { Noctis } from '@/components/brand/Noctis';
 import { NoctisSprite } from '@/components/brand/NoctisSprite';
 import { ENTER } from '@/components/ui/motion';
 import { useAppTheme } from '@/contexts/ThemeContext';
-import { useAuth } from '@/contexts/AuthContext';
 import { palette, spacing, radii } from '@/constants/tokens';
+import { supabase } from '@/lib/supabase';
+
+// Reject obviously malformed addresses before round-tripping to Supabase.
+// Matches "local@domain.tld" with no whitespace in any segment — good enough
+// for a client-side gate, the server does the real RFC validation.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // ── Noctis sprite sizing ──────────────────────────────────────────────
 // Tweak these two numbers to resize the pixel-art crow on the sign-up page.
@@ -32,7 +37,6 @@ const FIELD_LABEL_STYLE = {
 
 export default function SignUpScreen() {
   const { isDark } = useAppTheme();
-  const { signUp } = useAuth();
   const router = useRouter();
   const isWeb = Platform.OS === 'web';
   const { height: windowHeight } = useWindowDimensions();
@@ -45,12 +49,13 @@ export default function SignUpScreen() {
   const [serverError, setServerError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [checkInbox, setCheckInbox] = useState(false);
+  const [resendBusy, setResendBusy] = useState(false);
+  const [resendToast, setResendToast] = useState<string | null>(null);
 
   const canSubmit = useMemo(() => {
     return (
       username.trim().length >= 2 &&
-      email.trim().length > 3 &&
-      email.includes('@') &&
+      EMAIL_RE.test(email.trim()) &&
       password.length >= 6 &&
       !isLoading
     );
@@ -62,8 +67,9 @@ export default function SignUpScreen() {
       setServerError('Choose a display name.');
       return;
     }
-    if (!email.trim() || !password.trim()) {
-      setServerError('Enter an email and password.');
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!EMAIL_RE.test(normalizedEmail)) {
+      setServerError('Enter a valid email address.');
       return;
     }
     if (password.length < 6) {
@@ -75,15 +81,46 @@ export default function SignUpScreen() {
     }
     setIsLoading(true);
     try {
-      await signUp(email.trim().toLowerCase(), password, username.trim());
-      // If email confirmation is required (prod), session won't exist yet — show inbox state.
-      // In dev (confirmations off), AuthContext will flip isAuthenticated and index.tsx redirects.
-      setCheckInbox(true);
+      const trimmedUsername = username.trim();
+      const { data, error } = await supabase.auth.signUp({
+        email: normalizedEmail,
+        password,
+        options: { data: { username: trimmedUsername, display_name: trimmedUsername } },
+      });
+      if (error) throw error;
+      // Supabase returns a session inline when email confirmation is off.
+      // When it's on, data.session is null and the user must confirm via
+      // the email link. Branch accordingly — the auth listener in
+      // AuthContext will pick up the session and index.tsx redirects.
+      if (data.session) {
+        router.replace('/(tabs)/library');
+      } else {
+        setCheckInbox(true);
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Something went wrong.';
       setServerError(msg);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleResend = async () => {
+    if (resendBusy) return;
+    setResendBusy(true);
+    setResendToast(null);
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: email.trim().toLowerCase(),
+      });
+      if (error) throw error;
+      setResendToast('Sent!');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Could not resend.';
+      setResendToast(msg);
+    } finally {
+      setResendBusy(false);
     }
   };
 
@@ -109,6 +146,19 @@ export default function SignUpScreen() {
             <Body color={subColor} italic family="serif" align="center" style={{ maxWidth: 340 }}>
               Confirm your email to open the shelf. If you don&apos;t see it in a minute, check spam.
             </Body>
+          </Animated.View>
+          <Animated.View entering={ENTER.fadeUp(220)} style={{ alignItems: 'center', gap: spacing.sm }}>
+            <Button
+              title={resendBusy ? 'Resending…' : 'Resend confirmation email'}
+              variant="secondary"
+              disabled={resendBusy || !email.trim()}
+              onPress={handleResend}
+            />
+            {resendToast ? (
+              <BodySm color={resendToast === 'Sent!' ? palette.sage : palette.alert}>
+                {resendToast}
+              </BodySm>
+            ) : null}
           </Animated.View>
           <Animated.View entering={ENTER.fadeUp(260)}>
             <Button title="Back to sign in" variant="ghost" onPress={() => router.replace('/(auth)/sign-in' as any)} />

@@ -1,17 +1,36 @@
-__pycache__/
-*.pyc
-.venv/
-venv/
+# Secrets / env files — never bake into images
 .env
-.git/
-.gitignore
+.env.*
+!.env.example
+
+# Local caches and transient artifacts
 tmp/
+clips/
 ffmpeg_shared/
 ffmpeg_shared.zip
-clips/
-*.mp4
-*.wav
-.vscode/
-.idea/
+
+# Python build / cache
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
 .pytest_cache/
 .mypy_cache/
+
+# Large/binary media that should not ship inside the image
+*.mp4
+*.wav
+*.mov
+*.mkv
+
+# Git + editor noise
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# Node (in case docker build is ever run from repo root)
+node_modules/

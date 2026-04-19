@@ -21,21 +21,7 @@ import { ENTER, stagger } from '@/components/ui/motion';
 import { useAppTheme } from '@/contexts/ThemeContext';
 import { useClasses, useFeed, useProfileStats } from '@/data/hooks';
 import type { Row } from '@/types/supabase';
-
-function formatRelative(iso: string): string {
-  const then = new Date(iso).getTime();
-  const now = Date.now();
-  const diff = Math.max(0, now - then);
-  const h = Math.floor(diff / 3_600_000);
-  if (h < 1) return 'just now';
-  if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24);
-  if (d < 7) return `${d}d ago`;
-  const w = Math.floor(d / 7);
-  if (w < 5) return `${w}w ago`;
-  const mo = Math.floor(d / 30);
-  return `${mo}mo ago`;
-}
+import { formatDuration, formatRelative } from '@/lib/format';
 
 // ───────────────────────── Stat tile ─────────────────────────
 interface StatProps {
@@ -98,7 +84,8 @@ function StatGlyph({ kind, color }: { kind: 'spark' | 'bars' | 'ring'; color: st
 }
 
 // ───────────────────────── Clip card ─────────────────────────
-function ClipCard({ index, tokens, title, className, classColor, tint, duration, creator }: {
+function ClipCard({ id, index, tokens, title, className, classColor, tint, duration, creator }: {
+  id: string;
   index: number;
   tokens: DNAToken[];
   title: string;
@@ -112,7 +99,7 @@ function ClipCard({ index, tokens, title, className, classColor, tint, duration,
   return (
     <Animated.View entering={ENTER.fadeUp(stagger(index, 70, 40))} style={{ flex: 1, minWidth: 220 }}>
       <Pressable
-        onPress={() => router.push('/player/krebs-cycle-01' as any)}
+        onPress={() => router.push(`/player/${id}` as any)}
         style={({ pressed, hovered }: any) => ({
           width: '100%',
           aspectRatio: 9 / 13,
@@ -248,13 +235,6 @@ export default function FeedWebScreen() {
   const recentClips = useMemo<Row<'clips'>[]>(() => allClips.slice(0, 6), [allClips]);
   const resumeClips = useMemo<Row<'clips'>[]>(() => allClips.slice(0, 4), [allClips]);
 
-  function fmtDur(s: number | null | undefined): string {
-    const sec = Math.max(0, Math.round(s ?? 0));
-    const m = Math.floor(sec / 60);
-    const r = sec % 60;
-    return `${m}:${r.toString().padStart(2, '0')}`;
-  }
-
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: colors.background as string }}
@@ -296,13 +276,14 @@ export default function FeedWebScreen() {
                 {recentClips.map((c, i) => (
                   <ClipCard
                     key={c.id}
+                    id={c.id}
                     index={i}
                     tokens={DEFAULT_DNA}
                     title={c.title}
                     className="Course"
                     classColor={palette.sage}
                     tint={c.thumbnail_color ?? palette.tealDeep}
-                    duration={fmtDur(c.duration_s)}
+                    duration={formatDuration(c.duration_s)}
                     creator={c.source_creator ?? '@source'}
                   />
                 ))}

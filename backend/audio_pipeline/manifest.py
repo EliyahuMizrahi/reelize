@@ -98,6 +98,8 @@ def build_manifest(inputs: Inputs, cfg: PipelineConfig) -> dict:
     # ── Top-level manifest ─────────────────────────────────────
     diar = inputs.diarization
     manifest = {
+        # bump on shape change
+        "schema_version": 1,
         "source": {
             "url": inputs.source_url,
             "audio": str(inputs.source_audio),

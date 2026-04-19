@@ -11,6 +11,7 @@ import { useRouter } from 'expo-router';
 import type { Session, User } from '@supabase/supabase-js';
 
 import { supabase } from '@/lib/supabase';
+import { subscribeAuthExpired } from '@/services/api';
 import type { Row } from '@/types/supabase';
 
 type Profile = Row<'profiles'>;
@@ -61,22 +62,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
+    // `onAuthStateChange` fires an `INITIAL_SESSION` event once Supabase has
+    // rehydrated storage — that's our single source of truth. If that event
+    // hasn't arrived by the time `getSession()` resolves we still seed from
+    // it, but we skip setting the session a second time to avoid the stale
+    // closure overwrite.
+    const initialFromListenerRef = { current: false };
 
-    supabase.auth.getSession().then(async ({ data }) => {
+    supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        if (cancelled || initialFromListenerRef.current) return;
+        setSession(data.session ?? null);
+        return hydrateProfile(data.session ?? null);
+      })
+      .catch((err) => {
+        // eslint-disable-next-line no-console
+        console.warn('[auth] getSession failed', err);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+
+    const { data: sub } = supabase.auth.onAuthStateChange(async (event, s) => {
       if (cancelled) return;
-      setSession(data.session);
-      await hydrateProfile(data.session);
-      setIsLoading(false);
-    });
-
-    const { data: sub } = supabase.auth.onAuthStateChange(async (_event, s) => {
+      if (event === 'INITIAL_SESSION') {
+        initialFromListenerRef.current = true;
+      }
       setSession(s);
       await hydrateProfile(s);
+    });
+
+    const unsubscribeAuthExpired = subscribeAuthExpired(() => {
+      // Backend said our token is no good. Blow the session away; the route
+      // guard does the actual redirect.
+      // eslint-disable-next-line no-console
+      console.warn('[auth] received authExpired — signing out');
+      supabase.auth.signOut().catch(() => {
+        /* already signed out */
+      });
     });
 
     return () => {
       cancelled = true;
       sub.subscription.unsubscribe();
+      unsubscribeAuthExpired();
     };
   }, [hydrateProfile]);
 

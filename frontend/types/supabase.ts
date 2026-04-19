@@ -78,6 +78,7 @@ export type Database = {
       clips: {
         Row: {
           artifact_prefix: string | null
+          artifacts: Json | null
           created_at: string
           duration_s: number | null
           id: string
@@ -87,6 +88,7 @@ export type Database = {
           source_url: string | null
           status: string
           style_dna: Json | null
+          template_id: string | null
           thumbnail_color: string | null
           title: string
           topic_id: string
@@ -95,6 +97,7 @@ export type Database = {
         }
         Insert: {
           artifact_prefix?: string | null
+          artifacts?: Json | null
           created_at?: string
           duration_s?: number | null
           id?: string
@@ -104,6 +107,7 @@ export type Database = {
           source_url?: string | null
           status?: string
           style_dna?: Json | null
+          template_id?: string | null
           thumbnail_color?: string | null
           title: string
           topic_id: string
@@ -112,6 +116,7 @@ export type Database = {
         }
         Update: {
           artifact_prefix?: string | null
+          artifacts?: Json | null
           created_at?: string
           duration_s?: number | null
           id?: string
@@ -121,6 +126,7 @@ export type Database = {
           source_url?: string | null
           status?: string
           style_dna?: Json | null
+          template_id?: string | null
           thumbnail_color?: string | null
           title?: string
           topic_id?: string
@@ -136,6 +142,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "clips_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "templates"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "clips_topic_id_fkey"
             columns: ["topic_id"]
             isOneToOne: false
@@ -144,9 +157,51 @@ export type Database = {
           },
         ]
       }
+      job_events: {
+        Row: {
+          created_at: string
+          data: Json | null
+          id: number
+          job_id: string
+          message: string | null
+          progress_pct: number | null
+          stage: string | null
+          type: string
+        }
+        Insert: {
+          created_at?: string
+          data?: Json | null
+          id?: number
+          job_id: string
+          message?: string | null
+          progress_pct?: number | null
+          stage?: string | null
+          type: string
+        }
+        Update: {
+          created_at?: string
+          data?: Json | null
+          id?: number
+          job_id?: string
+          message?: string | null
+          progress_pct?: number | null
+          stage?: string | null
+          type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "job_events_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       jobs: {
         Row: {
           artifact_prefix: string | null
+          artifacts: Json | null
           audio_manifest: Json | null
           clip_context: string | null
           clip_id: string | null
@@ -163,6 +218,7 @@ export type Database = {
         }
         Insert: {
           artifact_prefix?: string | null
+          artifacts?: Json | null
           audio_manifest?: Json | null
           clip_context?: string | null
           clip_id?: string | null
@@ -179,6 +235,7 @@ export type Database = {
         }
         Update: {
           artifact_prefix?: string | null
+          artifacts?: Json | null
           audio_manifest?: Json | null
           clip_context?: string | null
           clip_id?: string | null
@@ -236,6 +293,79 @@ export type Database = {
         }
         Relationships: []
       }
+      templates: {
+        Row: {
+          class_id: string | null
+          created_at: string
+          description: string | null
+          duration_s: number | null
+          id: string
+          name: string
+          sfx_manifest: Json | null
+          source_clip_id: string | null
+          source_job_id: string | null
+          style_dna: Json | null
+          thumbnail_color: string | null
+          updated_at: string
+          user_id: string
+          video_analysis: Json | null
+        }
+        Insert: {
+          class_id?: string | null
+          created_at?: string
+          description?: string | null
+          duration_s?: number | null
+          id?: string
+          name: string
+          sfx_manifest?: Json | null
+          source_clip_id?: string | null
+          source_job_id?: string | null
+          style_dna?: Json | null
+          thumbnail_color?: string | null
+          updated_at?: string
+          user_id: string
+          video_analysis?: Json | null
+        }
+        Update: {
+          class_id?: string | null
+          created_at?: string
+          description?: string | null
+          duration_s?: number | null
+          id?: string
+          name?: string
+          sfx_manifest?: Json | null
+          source_clip_id?: string | null
+          source_job_id?: string | null
+          style_dna?: Json | null
+          thumbnail_color?: string | null
+          updated_at?: string
+          user_id?: string
+          video_analysis?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "templates_class_id_fkey"
+            columns: ["class_id"]
+            isOneToOne: false
+            referencedRelation: "classes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "templates_source_clip_id_fkey"
+            columns: ["source_clip_id"]
+            isOneToOne: false
+            referencedRelation: "clips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "templates_source_job_id_fkey"
+            columns: ["source_job_id"]
+            isOneToOne: false
+            referencedRelation: "jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       topics: {
         Row: {
           class_id: string
@@ -289,7 +419,7 @@ export type Database = {
 }
 
 // Row / Insert / Update helpers keyed by table name
-type Pub = Database['public']['Tables'];
-export type Row<T extends keyof Pub> = Pub[T]['Row'];
-export type Insert<T extends keyof Pub> = Pub[T]['Insert'];
-export type Update<T extends keyof Pub> = Pub[T]['Update'];
+type Pub = Database['public']['Tables']
+export type Row<T extends keyof Pub> = Pub[T]['Row']
+export type Insert<T extends keyof Pub> = Pub[T]['Insert']
+export type Update<T extends keyof Pub> = Pub[T]['Update']

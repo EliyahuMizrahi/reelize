@@ -18,10 +18,13 @@ export type TopicWithClipCount = Row<'topics'> & {
 export async function fetchClasses(
   userId: string,
 ): Promise<ClassWithCounts[]> {
-  // Single round-trip using relational count aggregates.
+  // clips has no direct FK to classes (clips -> topics -> classes), so a
+  // top-level `clips(count)` embed fails with "no relationship" on PostgREST.
+  // Count through topics: each topic carries its own clips(count), and we
+  // sum those client-side. Total topic count is just topics.length.
   const { data, error } = await supabase
     .from('classes')
-    .select('*, topics(count), clips(count)')
+    .select('*, topics(id, clips(count))')
     .eq('user_id', userId)
     .order('last_active_at', { ascending: false, nullsFirst: false })
     .order('created_at', { ascending: false });
@@ -30,13 +33,14 @@ export async function fetchClasses(
   if (!data) return [];
 
   return data.map((row: any) => {
-    const topicCount = Array.isArray(row.topics)
-      ? Number(row.topics[0]?.count ?? 0)
-      : 0;
-    const clipCount = Array.isArray(row.clips)
-      ? Number(row.clips[0]?.count ?? 0)
-      : 0;
-    const { topics, clips, ...rest } = row;
+    const topics: Array<{ id: string; clips?: Array<{ count: number }> }> =
+      Array.isArray(row.topics) ? row.topics : [];
+    const topicCount = topics.length;
+    const clipCount = topics.reduce((sum, t) => {
+      const c = Array.isArray(t.clips) ? Number(t.clips[0]?.count ?? 0) : 0;
+      return sum + c;
+    }, 0);
+    const { topics: _t, ...rest } = row;
     return {
       ...(rest as Row<'classes'>),
       topic_count: topicCount,
@@ -106,6 +110,22 @@ export async function fetchClipsForTopic(
   return data ?? [];
 }
 
+export async function fetchClipsForClass(
+  classId: string,
+): Promise<Row<'clips'>[]> {
+  const { data, error } = await supabase
+    .from('clips')
+    .select('*, topics!inner(class_id)')
+    .eq('topics.class_id', classId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  if (!data) return [];
+  return data.map((row: any) => {
+    const { topics: _t, ...rest } = row;
+    return rest as Row<'clips'>;
+  });
+}
+
 export async function fetchClip(id: string): Promise<Row<'clips'> | null> {
   const { data, error } = await supabase
     .from('clips')
@@ -131,6 +151,44 @@ export async function fetchFeed(
     .limit(limit);
   if (error) throw error;
   return data ?? [];
+}
+
+// ------- Templates -------
+
+export async function fetchTemplatesForClass(
+  classId: string,
+): Promise<Row<'templates'>[]> {
+  const { data, error } = await supabase
+    .from('templates')
+    .select('*')
+    .eq('class_id', classId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function fetchTemplatesForUser(
+  userId: string,
+): Promise<Row<'templates'>[]> {
+  const { data, error } = await supabase
+    .from('templates')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function fetchTemplate(
+  id: string,
+): Promise<Row<'templates'> | null> {
+  const { data, error } = await supabase
+    .from('templates')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+  if (error) throw error;
+  return data ?? null;
 }
 
 // ------- Activity -------

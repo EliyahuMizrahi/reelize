@@ -10,6 +10,14 @@ import os
 ProgressCallback = Callable[[str, str, Optional[dict[str, Any]]], None]
 
 
+class JobCancelled(Exception):
+    """Raised by pipeline stage boundaries when the user has requested cancel.
+
+    Defined here (not in worker.py) so the pipeline module has no upward
+    dependency. `worker.py` imports this symbol.
+    """
+
+
 @dataclass
 class PipelineConfig:
     # ── Output ─────────────────────────────────────────────────
@@ -81,6 +89,12 @@ class PipelineConfig:
     # forward a job_events row to the frontend. Keeps the UI from sitting on
     # a spinner for 3+ minutes between audio.start and audio.done.
     progress_callback: Optional[ProgressCallback] = None
+
+    # ── Cancellation ───────────────────────────────────────────
+    # Called at stage boundaries; if it returns True the pipeline raises
+    # JobCancelled and aborts. Worker wires this to a threading.Event polled
+    # from the `jobs.status = 'cancelled'` row so users can cancel mid-run.
+    should_cancel: Optional[Callable[[], bool]] = None
 
     def __post_init__(self) -> None:
         self.output_dir = Path(self.output_dir)

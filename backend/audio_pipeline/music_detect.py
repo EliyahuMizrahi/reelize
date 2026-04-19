@@ -23,11 +23,36 @@ log = logging.getLogger(__name__)
 
 _FRAME = 4096
 _HOP = 2048
+_HPSS_CHUNK_SECONDS = 60.0   # cap STFT+HPSS memory on long inputs
 
 
 def _robust_norm(x: np.ndarray) -> np.ndarray:
     """Normalise to ~[0,1] via p95 — robust to single-frame outliers."""
     return np.clip(x / (np.percentile(x, 95) + 1e-10), 0, 1)
+
+
+def _chunked_hpss_energy(y: np.ndarray, sr: int) -> np.ndarray:
+    """STFT + HPSS over `y`, processed in <=60s chunks to cap peak memory.
+
+    Returns the per-frame (harmonic + percussive) magnitude sum, concatenated
+    across chunks to match a single-pass STFT frame grid closely enough for
+    downstream GMM classification.
+    """
+    chunk_samples = int(_HPSS_CHUNK_SECONDS * sr)
+    if len(y) <= chunk_samples:
+        S = np.abs(librosa.stft(y, n_fft=_FRAME, hop_length=_HOP))
+        H, P = librosa.decompose.hpss(S)
+        return H.sum(axis=0) + P.sum(axis=0)
+
+    parts: list[np.ndarray] = []
+    for start in range(0, len(y), chunk_samples):
+        chunk = y[start:start + chunk_samples]
+        if len(chunk) < _FRAME:
+            break  # too short for STFT — skip residual tail
+        S = np.abs(librosa.stft(chunk, n_fft=_FRAME, hop_length=_HOP))
+        H, P = librosa.decompose.hpss(S)
+        parts.append(H.sum(axis=0) + P.sum(axis=0))
+    return np.concatenate(parts) if parts else np.array([])
 
 
 def detect_music_regions(
@@ -49,9 +74,18 @@ def detect_music_regions(
     rms = librosa.feature.rms(y=y, frame_length=_FRAME, hop_length=_HOP)[0]
     flatness = librosa.feature.spectral_flatness(y=y, n_fft=_FRAME, hop_length=_HOP)[0]
 
-    S = np.abs(librosa.stft(y, n_fft=_FRAME, hop_length=_HOP))
-    H, P = librosa.decompose.hpss(S)
-    hp_raw = H.sum(axis=0) + P.sum(axis=0)
+    # HPSS is O(n) memory; chunk on long inputs so we don't OOM on 5+ minute clips.
+    hp_raw = _chunked_hpss_energy(y, sr)
+
+    # Defensive: reconcile frame-count mismatch between rms/flatness (single-pass)
+    # and hp_raw (chunked). Trim all three to the shortest so GMM input is square.
+    n_frames = min(len(rms), len(flatness), len(hp_raw)) if len(hp_raw) else 0
+    if n_frames == 0:
+        log.warning("music_detect: empty feature frames; returning no regions")
+        return []
+    rms = rms[:n_frames]
+    flatness = flatness[:n_frames]
+    hp_raw = hp_raw[:n_frames]
 
     rms_n = _robust_norm(rms)
     tonal_n = 1.0 - np.clip(flatness, 0, 1)

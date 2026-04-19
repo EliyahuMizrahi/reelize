@@ -5,9 +5,6 @@ import {
   SlideInUp,
   SlideInDown,
   ZoomIn,
-  EntryAnimationsValues,
-  withTiming,
-  withDelay,
   Easing,
 } from 'react-native-reanimated';
 import { motion } from '@/constants/tokens';

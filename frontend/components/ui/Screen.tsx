@@ -19,7 +19,6 @@ interface ScreenProps {
   edges?: Edge[];
   background?: ScreenBackground;
   style?: ViewStyle;
-  dense?: boolean;
 }
 
 // Gradient stops — tweak here to adjust the onboarding/auth sky.

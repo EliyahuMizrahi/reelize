@@ -31,7 +31,10 @@ export default function Index() {
   }
 
   if (isAuthenticated) {
-    return <Redirect href="/(tabs)/feed" />;
+    // On mobile, the `feed` tab is hidden (href: null in (tabs)/_layout.tsx),
+    // so redirecting there lands on a tab that doesn't exist. Route both
+    // platforms to library — that's the "home" shelf intent.
+    return <Redirect href="/(tabs)/library" />;
   }
 
   // Splash / intro screen is mobile-only. Web users land straight on sign-up.

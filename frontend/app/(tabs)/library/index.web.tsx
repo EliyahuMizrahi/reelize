@@ -30,26 +30,12 @@ import {
   useTopicsForClass,
   useClipsForTopic,
   useProfileStats,
+  useTemplatesForUser,
 } from '@/data/hooks';
-import { createClass } from '@/data/mutations';
+import { createClass, deleteClass, deleteTemplate, updateTemplate } from '@/data/mutations';
 import type { ClassWithCounts, TopicWithClipCount } from '@/data/queries';
 import type { Row } from '@/types/supabase';
-
-function formatRelative(iso: string | null | undefined): string {
-  if (!iso) return 'new';
-  const then = new Date(iso).getTime();
-  const now = Date.now();
-  const diff = Math.max(0, now - then);
-  const h = Math.floor(diff / 3_600_000);
-  if (h < 1) return 'just now';
-  if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24);
-  if (d < 7) return `${d}d ago`;
-  const w = Math.floor(d / 7);
-  if (w < 5) return `${w}w ago`;
-  const mo = Math.floor(d / 30);
-  return `${mo}mo ago`;
-}
+import { formatRelative, summarizeTemplate } from '@/lib/format';
 
 type Sort = 'recent' | 'alpha' | 'most-clips';
 
@@ -60,12 +46,14 @@ function PageHeader({
   counts,
   courseCount,
   onNewCourse,
+  onOpenTemplates,
 }: {
   sort: Sort;
   setSort: (s: Sort) => void;
   counts: { topic: number; clip: number };
   courseCount: number;
   onNewCourse: () => void;
+  onOpenTemplates: () => void;
 }) {
   const { colors } = useAppTheme();
   return (
@@ -80,29 +68,53 @@ function PageHeader({
     >
       <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: spacing.lg }}>
         <View>
-          <Overline muted>LIBRARY</Overline>
-          <Headline style={{ marginTop: spacing.xs }}>Your courses.</Headline>
+          <Headline>Your courses.</Headline>
           <BodySm italic family="serif" muted style={{ marginTop: 2 }}>
             {courseCount} courses. {counts.clip} lessons.
           </BodySm>
         </View>
-        <Pressable
-          onPress={onNewCourse}
-          style={({ hovered, pressed }: any) => ({
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 6,
-            height: 36,
-            paddingHorizontal: 14,
-            borderRadius: radii.sm,
-            backgroundColor: pressed || hovered ? (colors.primary as string) : (colors.primary as string) + 'DD',
-          })}
-        >
-          <Feather name="plus" size={14} color={colors.onPrimary as string} />
-          <Text variant="bodySm" weight="semibold" color={colors.onPrimary as string}>
-            New course
-          </Text>
-        </Pressable>
+        <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
+          <Pressable
+            onPress={onOpenTemplates}
+            style={({ hovered, pressed }: any) => ({
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 6,
+              height: 36,
+              paddingHorizontal: 14,
+              borderRadius: radii.sm,
+              borderWidth: 1,
+              borderColor: (colors.primary as string) + (hovered || pressed ? 'AA' : '66'),
+              backgroundColor: hovered || pressed
+                ? (colors.primary as string) + '22'
+                : (colors.primary as string) + '14',
+              transitionProperty: 'background-color, border-color' as any,
+              transitionDuration: '140ms' as any,
+            })}
+          >
+            <Feather name="layers" size={14} color={colors.primary as string} />
+            <Text variant="bodySm" weight="bold" color={colors.primary as string}>
+              Templates
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={onNewCourse}
+            style={({ hovered, pressed }: any) => ({
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 6,
+              height: 36,
+              paddingHorizontal: 14,
+              borderRadius: radii.sm,
+              backgroundColor: pressed || hovered ? (colors.primary as string) : (colors.primary as string) + 'DD',
+            })}
+          >
+            <Feather name="plus" size={14} color={colors.onPrimary as string} />
+            <Text variant="bodySm" weight="semibold" color={colors.onPrimary as string}>
+              New course
+            </Text>
+          </Pressable>
+        </View>
       </View>
       {courseCount > 0 ? (
         <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -267,10 +279,12 @@ function ClassCardLarge({
   cls,
   index,
   onPress,
+  onDelete,
 }: {
   cls: ClassWithCounts;
   index: number;
   onPress: () => void;
+  onDelete: () => void;
 }) {
   return (
     <Animated.View entering={ENTER.fadeUp(stagger(index, 80, 40))} style={{ flex: 1, minWidth: 260, maxWidth: 400 }}>
@@ -313,9 +327,33 @@ function ClassCardLarge({
               top: spacing.lg,
               right: spacing.lg,
               flexDirection: 'row',
+              alignItems: 'center',
               gap: spacing.sm,
             }}
           >
+            <Pressable
+              onPress={(e) => {
+                e.stopPropagation();
+                onDelete();
+              }}
+              accessibilityLabel={`Delete ${cls.name}`}
+              style={({ hovered, pressed }: any) => ({
+                width: 28,
+                height: 28,
+                borderRadius: radii.sm,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: hovered || pressed
+                  ? palette.alert + '33'
+                  : 'rgba(4,20,30,0.55)',
+                borderWidth: 1,
+                borderColor: hovered || pressed
+                  ? palette.alert + '88'
+                  : 'rgba(255,255,255,0.12)',
+              })}
+            >
+              <Feather name="trash-2" size={12} color={palette.alert} />
+            </Pressable>
             <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: radii.xs, backgroundColor: 'rgba(4,20,30,0.55)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)' }}>
               <MonoSm color={palette.fog}>{String(index + 1).padStart(2, '0')}</MonoSm>
             </View>
@@ -454,7 +492,7 @@ function ClassDetailView({
               </View>
               <View style={{ alignItems: 'flex-end' }}>
                 <Mono color={palette.gold}>{Math.round(topic.progress * 100)}%</Mono>
-                <MonoSm muted>{topic.clip_count} lessons · {formatRelative(topic.last_studied_at)}</MonoSm>
+                <MonoSm muted>{topic.clip_count} lessons · {formatRelative(topic.last_studied_at) || 'new'}</MonoSm>
               </View>
             </View>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.lg }}>
@@ -466,6 +504,328 @@ function ClassDetailView({
         ) : null}
       </View>
     </View>
+  );
+}
+
+// ───────────────────────── Templates sheet (web, universal) ─────────────────────────
+// Modal opened from the page header. Templates aren't scoped to a course —
+// any template can be used to spin up a clip in any course at generation time.
+function WebTemplatesSheet({
+  open,
+  onClose,
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
+  const { colors } = useAppTheme();
+  const { data: templates, loading } = useTemplatesForUser();
+  const list = templates ?? [];
+  const [editing, setEditing] = useState<Row<'templates'> | null>(null);
+
+  return (
+    <Modal visible={open} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable
+        onPress={onClose}
+        style={{
+          flex: 1,
+          backgroundColor: 'rgba(2,6,15,0.72)',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: spacing.xl,
+        }}
+      >
+        <Pressable
+          onPress={() => {}}
+          style={{
+            width: '100%',
+            maxWidth: 640,
+            maxHeight: '85%',
+            borderRadius: radii['2xl'],
+            backgroundColor: colors.card as string,
+            borderWidth: 1,
+            borderColor: colors.border as string,
+            overflow: 'hidden',
+          }}
+        >
+          <View
+            style={{
+              paddingHorizontal: spacing.xl,
+              paddingVertical: spacing.lg,
+              borderBottomWidth: 1,
+              borderBottomColor: colors.border as string,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Feather name="layers" size={18} color={colors.primary as string} />
+              <Title>Templates</Title>
+            </View>
+            <IconButton
+              variant="ghost"
+              size={32}
+              onPress={onClose}
+              accessibilityLabel="Close"
+            >
+              <Feather name="x" size={14} color={colors.text as string} />
+            </IconButton>
+          </View>
+
+          <ScrollView
+            contentContainerStyle={{
+              padding: spacing.xl,
+              gap: spacing.md,
+            }}
+            showsVerticalScrollIndicator={false}
+          >
+            {loading && list.length === 0 ? (
+              <MonoSm muted>Loading templates…</MonoSm>
+            ) : list.length === 0 ? (
+              <Surface padded={spacing.xl} radius="xl" bordered style={{ gap: spacing.md, alignItems: 'flex-start' }}>
+                <View
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: 22,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: colors.elevated as string,
+                    borderWidth: 1,
+                    borderColor: colors.border as string,
+                  }}
+                >
+                  <Feather name="layers" size={18} color={colors.primary as string} />
+                </View>
+                <Title>No templates yet.</Title>
+                <BodySm muted>
+                  Deconstruct a reel in Create to save its SFX, cuts, and styling as a
+                  reusable template.
+                </BodySm>
+              </Surface>
+            ) : (
+              list.map((tpl) => (
+                <TemplateRowWeb
+                  key={tpl.id}
+                  template={tpl}
+                  classColor={palette.teal}
+                  onPress={() => setEditing(tpl)}
+                />
+              ))
+            )}
+          </ScrollView>
+        </Pressable>
+      </Pressable>
+      <TemplateDetailSheet template={editing} onClose={() => setEditing(null)} />
+    </Modal>
+  );
+}
+
+function TemplateRowWeb({
+  template,
+  classColor,
+  onPress,
+}: {
+  template: Row<'templates'>;
+  classColor: string;
+  onPress: () => void;
+}) {
+  const { colors } = useAppTheme();
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ hovered, pressed }: any) => ({
+        padding: spacing.lg,
+        borderRadius: radii.xl,
+        borderWidth: 1,
+        borderColor: hovered ? classColor + 'AA' : (colors.border as string),
+        backgroundColor: colors.card as string,
+        gap: 8,
+        opacity: pressed ? 0.92 : 1,
+        transitionProperty: 'border-color' as any,
+        transitionDuration: '140ms' as any,
+      })}
+    >
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+        <View
+          style={{
+            width: 10,
+            height: 10,
+            borderRadius: 2,
+            backgroundColor: classColor,
+          }}
+        />
+        <Title numberOfLines={1} style={{ flexShrink: 1 }}>
+          {template.name}
+        </Title>
+      </View>
+      {template.description ? (
+        <BodySm muted numberOfLines={2}>
+          {template.description}
+        </BodySm>
+      ) : null}
+      <View
+        style={{
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginTop: 4,
+        }}
+      >
+        <MonoSm muted numberOfLines={1} style={{ flex: 1 }}>
+          {summarizeTemplate(template)}
+        </MonoSm>
+        <MonoSm muted>{formatRelative(template.created_at)}</MonoSm>
+      </View>
+    </Pressable>
+  );
+}
+
+// Web template edit sheet — mirrors the mobile one but uses Modal with web
+// styling tokens.
+function TemplateDetailSheet({
+  template,
+  onClose,
+}: {
+  template: Row<'templates'> | null;
+  onClose: () => void;
+}) {
+  const { colors } = useAppTheme();
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [busy, setBusy] = useState<'save' | 'delete' | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!template) return;
+    setName(template.name);
+    setDescription(template.description ?? '');
+    setErr(null);
+    setBusy(null);
+  }, [template]);
+
+  const onSave = async () => {
+    if (!template) return;
+    const trimmed = name.trim();
+    if (trimmed.length < 2) return;
+    setBusy('save');
+    setErr(null);
+    try {
+      await updateTemplate(template.id, {
+        name: trimmed,
+        description: description.trim() || null,
+      });
+      onClose();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+      setBusy(null);
+    }
+  };
+
+  const onDelete = async () => {
+    if (!template) return;
+    setBusy('delete');
+    setErr(null);
+    try {
+      await deleteTemplate(template.id);
+      onClose();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+      setBusy(null);
+    }
+  };
+
+  return (
+    <Modal
+      visible={!!template}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <Pressable
+        onPress={onClose}
+        style={{
+          flex: 1,
+          backgroundColor: 'rgba(2,6,15,0.72)',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: spacing.xl,
+        }}
+      >
+        <Pressable
+          onPress={() => {}}
+          style={{
+            width: '100%',
+            maxWidth: 460,
+            padding: spacing['2xl'],
+            borderRadius: radii['2xl'],
+            backgroundColor: colors.card as string,
+            borderWidth: 1,
+            borderColor: colors.border as string,
+            gap: spacing.md,
+          }}
+        >
+          <Overline muted>TEMPLATE</Overline>
+          <View style={{ gap: 6 }}>
+            <Overline muted>NAME</Overline>
+            <TextField
+              variant="boxed"
+              placeholder="Template name"
+              value={name}
+              onChangeText={setName}
+            />
+          </View>
+          <View style={{ gap: 6 }}>
+            <Overline muted>DESCRIPTION</Overline>
+            <TextField
+              variant="boxed"
+              placeholder="Optional"
+              value={description}
+              onChangeText={setDescription}
+              multiline
+            />
+          </View>
+          {template ? (
+            <MonoSm muted>{summarizeTemplate(template)}</MonoSm>
+          ) : null}
+          {err ? <MonoSm color={palette.alert}>{err}</MonoSm> : null}
+          <View
+            style={{
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              marginTop: spacing.sm,
+            }}
+          >
+            <Button
+              variant="tertiary"
+              size="sm"
+              title={busy === 'delete' ? 'Deleting…' : 'Delete'}
+              onPress={onDelete}
+              disabled={busy !== null}
+              haptic={false}
+            />
+            <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+              <Button
+                variant="tertiary"
+                size="sm"
+                title="Cancel"
+                onPress={onClose}
+                disabled={busy !== null}
+                haptic={false}
+              />
+              <Button
+                variant="primary"
+                size="sm"
+                title={busy === 'save' ? 'Saving…' : 'Save'}
+                onPress={onSave}
+                disabled={busy !== null || name.trim().length < 2}
+                haptic={false}
+              />
+            </View>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
   );
 }
 
@@ -539,19 +899,54 @@ export default function LibraryWebScreen() {
   useWindowDimensions();
   const [sort, setSort] = useState<Sort>('recent');
   const [newCourseOpen, setNewCourseOpen] = useState(false);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
   const { activeCourseId, setActiveCourseId } = useActiveCourse();
-  const params = useLocalSearchParams<{ new?: string }>();
+  const params = useLocalSearchParams<{
+    new?: string;
+    tab?: string;
+    course?: string;
+  }>();
 
-  const { data: classes } = useClasses();
+  const { data: classes, refresh: refreshClasses } = useClasses();
   const { data: stats } = useProfileStats();
   const classList = classes ?? [];
+
+  const confirmDeleteClass = (cls: ClassWithCounts) => {
+    const msg = `Delete "${cls.name}"?\n\nThis removes ${cls.topic_count} topic${cls.topic_count === 1 ? '' : 's'} and ${cls.clip_count} clip${cls.clip_count === 1 ? '' : 's'}. Templates filed here become unfiled. Can't undo.`;
+    // eslint-disable-next-line no-alert
+    if (!window.confirm(msg)) return;
+    deleteClass(cls.id)
+      .then(() => {
+        if (activeCourseId === cls.id) setActiveCourseId(null);
+        refreshClasses();
+      })
+      .catch((err) => {
+        // eslint-disable-next-line no-alert
+        window.alert(
+          `Couldn't delete course: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
+  };
 
   useEffect(() => {
     if (params.new === '1') {
       setNewCourseOpen(true);
       router.replace('/(tabs)/library' as any);
+      return;
     }
-  }, [params.new, router]);
+    const tabParam = params.tab as string | undefined;
+    const courseParam = params.course as string | undefined;
+    if (!tabParam && !courseParam) return;
+    if (classList.length === 0) return;
+    if (courseParam && classList.find((c) => c.id === courseParam)) {
+      setActiveCourseId(courseParam);
+    }
+    if (tabParam === 'templates') {
+      setTemplatesOpen(true);
+    }
+    router.replace('/(tabs)/library' as any);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.new, params.tab, params.course, classList.length]);
 
   const sorted = useMemo(() => {
     const list = [...classList];
@@ -579,13 +974,17 @@ export default function LibraryWebScreen() {
         courseCount={classList.length}
         counts={{ topic: stats?.topicCount ?? 0, clip: stats?.clipCount ?? 0 }}
         onNewCourse={() => setNewCourseOpen(true)}
+        onOpenTemplates={() => setTemplatesOpen(true)}
       />
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ padding: spacing['2xl'], paddingBottom: spacing['5xl'] }}
       >
         {activeClass ? (
-          <ClassDetailView cls={activeClass} onClose={() => setActiveCourseId(null)} />
+          <ClassDetailView
+            cls={activeClass}
+            onClose={() => setActiveCourseId(null)}
+          />
         ) : classList.length === 0 ? (
           <LibraryEmptyState onNewCourse={() => setNewCourseOpen(true)} />
         ) : (
@@ -596,6 +995,7 @@ export default function LibraryWebScreen() {
                 cls={cls}
                 index={i}
                 onPress={() => setActiveCourseId(cls.id)}
+                onDelete={() => confirmDeleteClass(cls)}
               />
             ))}
           </View>
@@ -608,6 +1008,10 @@ export default function LibraryWebScreen() {
           setNewCourseOpen(false);
           setActiveCourseId(id);
         }}
+      />
+      <WebTemplatesSheet
+        open={templatesOpen}
+        onClose={() => setTemplatesOpen(false)}
       />
     </View>
   );

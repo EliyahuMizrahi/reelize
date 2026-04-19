@@ -5,11 +5,16 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "scheme": "reelize",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.reelize.app"
+      "bundleIdentifier": "com.reelize.app",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Reelize records short audio clips for SFX review.",
+        "NSCameraUsageDescription": "Reelize needs camera access to record video clips.",
+        "NSPhotoLibraryUsageDescription": "Reelize imports videos from your photo library."
+      }
     },
     "android": {
       "edgeToEdgeEnabled": true,
@@ -24,16 +29,16 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#04141E",
+          "backgroundColor": "#02060F",
           "dark": {
-            "backgroundColor": "#04141E"
+            "backgroundColor": "#02060F"
           }
         }
       ]
     ],
     "experiments": {
       "typedRoutes": true,
-      "reactCompiler": true
+      "reactCompiler": false
     }
   }
 }

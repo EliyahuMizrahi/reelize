@@ -2,8 +2,8 @@ services:
   backend:
     build:
       args:
-        TORCH_INDEX: https://download.pytorch.org/whl/cu124
-        TORCH_SUFFIX: "+cu124"
+        TORCH_INDEX: https://download.pytorch.org/whl/cu128
+        TORCH_SUFFIX: "+cu128"
     environment:
       - AUDIO_DEVICE=cuda
       - OMP_NUM_THREADS=2

@@ -1,5 +1,7 @@
-import React, { createContext, useContext, useRef } from 'react';
-import { Animated, ColorValue } from 'react-native';
+// TODO: dark mode is currently hardcoded. See audit Ship-blocker #5.
+import React, { createContext, useContext } from 'react';
+import { ColorValue } from 'react-native';
+import { palette } from '@/constants/tokens';
 
 type PaletteColors = {
   background: string;
@@ -30,20 +32,20 @@ type PaletteDef = {
 };
 
 const SLATE_DARK: PaletteColors = {
-  background: '#02060F',
-  card: '#0D1E30',
-  elevated: '#18314A',
-  text: '#CDD7DE',
-  mutedText: '#91A5B8',
-  inputBackground: '#122840',
-  border: '#2A3F55',
-  primary: '#91A5B8',
-  onPrimary: '#02060F',
-  secondary: '#3F566E',
+  background: palette.ink,
+  card: palette.inkTint,
+  elevated: palette.inkElevated,
+  text: palette.fog,
+  mutedText: palette.sage,
+  inputBackground: palette.inkTint,
+  border: palette.inkBorder,
+  primary: palette.sage,
+  onPrimary: palette.ink,
+  secondary: palette.teal,
   success: '#8FB89E',
-  warning: '#D4A574',
-  danger: '#C47B76',
-  info: '#7FA5C7',
+  warning: palette.gold,
+  danger: palette.alert,
+  info: palette.tealBright,
 };
 
 export const PALETTES: Record<PaletteName, PaletteDef> = {
@@ -51,7 +53,7 @@ export const PALETTES: Record<PaletteName, PaletteDef> = {
     name: 'slate',
     label: 'Slate',
     description: 'Cool blue-gray · corporate, crisp',
-    swatches: ['#02060F', '#0D1E30', '#3F566E', '#91A5B8', '#CDD7DE'],
+    swatches: [palette.ink, palette.inkTint, palette.teal, palette.sage, palette.fog],
     dark: SLATE_DARK,
     light: SLATE_DARK,
   },
@@ -64,7 +66,6 @@ export type AppTheme = {
   toggleTheme: () => void;
   setPalette: (name: PaletteName) => void;
   setPrimaryColor: (color: string) => void;
-  fadeAnim: Animated.Value;
   colors: {
     background: ColorValue;
     card: ColorValue;
@@ -85,19 +86,20 @@ export type AppTheme = {
 
 const AppThemeContext = createContext<AppTheme | undefined>(undefined);
 
-const noop = () => {};
+const warnNotImplemented = (name: string) => () => {
+  if (__DEV__) {
+    console.warn(`[theme] ${name} is not yet implemented`);
+  }
+};
 
 export const AppThemeProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
-  const fadeAnim = useRef(new Animated.Value(1)).current;
-
   const value: AppTheme = {
     isDark: true,
     palette: 'slate',
     primaryColor: SLATE_DARK.primary,
-    toggleTheme: noop,
-    setPalette: noop,
-    setPrimaryColor: noop,
-    fadeAnim,
+    toggleTheme: warnNotImplemented('toggleTheme'),
+    setPalette: warnNotImplemented('setPalette'),
+    setPrimaryColor: warnNotImplemented('setPrimaryColor'),
     colors: SLATE_DARK,
   };
 

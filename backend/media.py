@@ -8,8 +8,14 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 
-def _run(cmd: list[str]) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, capture_output=True, text=True)
+_DEFAULT_TIMEOUT_S = 600
+
+
+def _run(cmd: list[str], timeout: int = _DEFAULT_TIMEOUT_S) -> subprocess.CompletedProcess:
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"ffmpeg timed out after {timeout}s: {' '.join(cmd[:3])}") from exc
 
 
 def _q_from_quality(quality: int) -> int:

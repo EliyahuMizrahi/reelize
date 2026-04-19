@@ -1,9 +1,11 @@
 """Demucs stem separation + background-music mix + vocal-silence trim."""
 from __future__ import annotations
 
+import functools
 import logging
 import re
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -25,17 +27,23 @@ class StemArtifacts:
 def separate_stems(source_audio: Path, cfg: PipelineConfig) -> dict[str, Path]:
     """Run Demucs on the source audio, returning {stem_name: path}."""
     log.info("Running Demucs (%s, device=%s)...", cfg.demucs_model, cfg.device)
-    result = subprocess.run(
-        [
-            "python", "-m", "demucs",
-            "-n", cfg.demucs_model,
-            "-d", cfg.device,
-            "-o", str(cfg.stems_dir),
-            str(source_audio),
-        ],
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            [
+                sys.executable, "-m", "demucs",
+                "-n", cfg.demucs_model,
+                "-d", cfg.device,
+                "-o", str(cfg.stems_dir),
+                str(source_audio),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(
+            f"demucs timed out after {e.timeout}s on {source_audio}"
+        ) from e
     if result.returncode != 0:
         # Persist full output — demucs spams long torchcodec/ffmpeg warnings
         # that push the real error past any tail-truncation budget.
@@ -131,19 +139,56 @@ def make_trimmed_to_original(
 ) -> callable:
     """Return a function that maps a trimmed-timeline timestamp back to original time.
 
-    The trimmed audio has the silence regions removed, so timestamps from Whisper
-    on the trimmed vocals are shifted earlier than the real video timeline.
+    Whisper sees the trimmed audio (silences removed); its timestamps live on a
+    contiguous "trimmed timeline". We need to map them back to the original
+    video timeline, where the kept windows are separated by the removed silences.
+
+    Algorithm — explicit piecewise-linear map:
+      Build the list of kept (original-time) `(start, end)` windows by inverting
+      the silences. Track `consumed_trimmed_duration = 0`. For each kept window
+      `(o_start, o_end)` of duration `d = o_end - o_start`: any trimmed-time `t`
+      in `[consumed_trimmed_duration, consumed_trimmed_duration + d]` maps to
+      `o_start + (t - consumed_trimmed_duration)`. Then advance
+      `consumed_trimmed_duration += d`.
+
+    If `t_trimmed` exceeds the total kept duration (rounding slop at the tail),
+    we clamp to the end of the last kept window.
     """
+    # Sort silences defensively; ffmpeg emits them in order but make no assumption.
+    sorted_silences = sorted(
+        (
+            (float(s), float(e))
+            for s, e in silences
+            if float(e) > float(s)
+        ),
+        key=lambda se: se[0],
+    )
+
+    # Invert silences → kept windows. We don't know the total duration, so the
+    # final kept window is open-ended to +inf; in practice we only query
+    # timestamps inside the audio, so the open tail handles any t_trimmed.
+    kept: list[tuple[float, float]] = []
+    cursor = 0.0
+    for s_start, s_end in sorted_silences:
+        if s_start > cursor:
+            kept.append((cursor, s_start))
+        cursor = max(cursor, s_end)
+    # Trailing open window after the last silence.
+    kept.append((cursor, float("inf")))
+
     def trimmed_to_original(t_trimmed: float) -> float:
-        offset = 0.0
-        for s_start, s_end in silences:
-            # If this silence was removed before t_trimmed (in original time),
-            # we need to add its duration back.
-            if s_start <= t_trimmed + offset:
-                offset += s_end - s_start
-            else:
-                break
-        return t_trimmed + offset
+        if t_trimmed < 0:
+            return t_trimmed  # Shouldn't happen; pass through.
+        consumed = 0.0
+        last_o_end = 0.0
+        for o_start, o_end in kept:
+            d = o_end - o_start
+            if t_trimmed <= consumed + d:
+                return o_start + (t_trimmed - consumed)
+            consumed += d
+            last_o_end = o_end
+        # Fell past every finite window — clamp to the last finite boundary.
+        return last_o_end
 
     return trimmed_to_original
 

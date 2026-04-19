@@ -11,7 +11,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import Svg, { Path, Rect, Circle } from 'react-native-svg';
+import Svg, { Path } from 'react-native-svg';
 
 import { Screen, ScreenContent } from '@/components/ui/Screen';
 import { Surface } from '@/components/ui/Surface';
@@ -296,63 +296,6 @@ function PasteUrlTab({ onReady }: { onReady: (url: string) => void }) {
 }
 
 /* --- Camera Roll Tab --- */
-
-// Muted tints drawn from the palette so camera-roll placeholders never
-// clash with the shelf's undertone.
-const ROLL_SWATCHES = [
-  palette.tealDeep,
-  palette.inkTint,
-  palette.inkElevated,
-  palette.teal,
-  palette.ink,
-  palette.inkDeep,
-  palette.tealDeep,
-  palette.inkElevated,
-  palette.inkTint,
-];
-
-function RollThumb({
-  color,
-  index,
-  onPress,
-  selected,
-}: {
-  color: string;
-  index: number;
-  onPress: () => void;
-  selected: boolean;
-}) {
-  const { colors } = useAppTheme();
-  return (
-    <Animated.View
-      entering={ENTER.fadeUp(stagger(index, 40))}
-      style={{ flexBasis: '31%', flexGrow: 0, aspectRatio: 9 / 16 }}
-    >
-      <Pressable
-        onPress={onPress}
-        style={({ pressed }) => ({
-          width: '100%',
-          height: '100%',
-          borderRadius: radii.md,
-          backgroundColor: color,
-          overflow: 'hidden',
-          borderWidth: selected ? 2 : 1,
-          borderColor: selected ? (colors.primary as string) : (colors.border as string),
-          alignItems: 'center',
-          justifyContent: 'center',
-          opacity: pressed ? 0.82 : 1,
-          transform: [{ scale: pressed ? 0.985 : 1 }],
-        })}
-      >
-        <Svg width={22} height={22} viewBox="0 0 24 24">
-          <Rect x={3} y={5} width={18} height={14} rx={2} stroke={palette.mist} strokeWidth={1.2} fill="transparent" opacity={0.8} />
-          <Circle cx={8} cy={10} r={1.6} fill={palette.mist} opacity={0.8} />
-          <Path d="M 4 17 L 10 12 L 14 15 L 20 9" stroke={palette.mist} strokeWidth={1.2} fill="transparent" opacity={0.8} />
-        </Svg>
-      </Pressable>
-    </Animated.View>
-  );
-}
 
 function CameraRollTab({ onReady }: { onReady: (url: string) => void }) {
   // Not wired yet — will be replaced with an expo-image-picker flow once

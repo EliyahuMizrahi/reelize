@@ -391,7 +391,15 @@ export default function GenerationScreen() {
   // this clip's status to 'ready' when it finishes (minutes, not seconds).
   // We don't wait for real completion — the visual timeline is theatre,
   // and the player handles a 'generating' status gracefully.
+  //
+  // Kicked exactly once per mount via didKickoffRef — the effect runs with
+  // empty deps and the ref blocks any re-entry if router params rehydrate
+  // or the component re-mounts in a way that would otherwise spawn duplicate
+  // clips.
+  const didKickoffRef = useRef(false);
   useEffect(() => {
+    if (didKickoffRef.current) return;
+    didKickoffRef.current = true;
     let cancelled = false;
     (async () => {
       try {
@@ -399,11 +407,20 @@ export default function GenerationScreen() {
           ? { topicId: incomingTopicId }
           : await ensureUnsortedTopic(topic);
 
+        // Skip-clip-write guard: without a sourceUrl we have nothing to
+        // feed /analyze, and a 'generating' clip with no source is a
+        // zombie row the user can never resolve. Bail before createClip.
+        if (!sourceUrl) {
+          // eslint-disable-next-line no-console
+          console.warn('[generation] no sourceUrl — skipping clip creation');
+          return;
+        }
+
         const clip = await createClip({
           topic_id: topicId,
           title: topic,
           duration_s: 30,
-          source_url: sourceUrl || null,
+          source_url: sourceUrl,
           source_creator: sourceCreator || null,
           thumbnail_color: palette.tealDeep,
           status: 'generating',
@@ -414,25 +431,21 @@ export default function GenerationScreen() {
         }
         clipIdRef.current = clip.id;
 
-        // Kick the real pipeline. If no URL (demo taps), skip the backend
-        // hop and leave the clip in 'generating' — it still routes to the
-        // player which will render the placeholder surface.
-        if (sourceUrl) {
-          try {
-            const res = await analyze({
-              url: sourceUrl,
-              clipContext: topic,
-              clipId: clip.id,
-            });
-            if (!cancelled && !cancelledRef.current) {
-              jobIdRef.current = res.job_id;
-              setJobId(res.job_id);
-            }
-          } catch (err) {
-            // Backend may be down in dev — not fatal; keep the clip around.
-            // eslint-disable-next-line no-console
-            console.warn('[generation] analyze failed', err);
+        // Kick the real pipeline.
+        try {
+          const res = await analyze({
+            url: sourceUrl,
+            clipContext: topic,
+            clipId: clip.id,
+          });
+          if (!cancelled && !cancelledRef.current) {
+            jobIdRef.current = res.job_id;
+            setJobId(res.job_id);
           }
+        } catch (err) {
+          // Backend may be down in dev — not fatal; keep the clip around.
+          // eslint-disable-next-line no-console
+          console.warn('[generation] analyze failed', err);
         }
 
         await logActivity('generated', clip.id, `Generated ${topic}`);
@@ -444,7 +457,10 @@ export default function GenerationScreen() {
     return () => {
       cancelled = true;
     };
-  }, [incomingTopicId, topic, sourceUrl, sourceCreator]);
+    // Empty deps + ref guard: we intentionally ignore param rehydration so
+    // we never spawn a second clip for the same mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Mock mode: resolve the visual timeline at ~4200ms regardless of real
   // job state. Stream mode resolves on the real `job.done` event below.
@@ -502,13 +518,22 @@ export default function GenerationScreen() {
     cancelledRef.current = true;
     const cid = clipIdRef.current;
     const jid = jobIdRef.current;
-    // Ask the worker to stop at its next checkpoint, then clean up the rows.
-    // All three calls are fire-and-forget — navigation shouldn't block on them.
-    if (jid) {
-      cancelJob(jid).catch(() => {});
-      deleteJob(jid).catch(() => {});
-    }
-    if (cid) deleteClip(cid).catch(() => {});
+    // Sequential cleanup: cancelJob has to land before deleteJob (the worker
+    // may still hold the row lock otherwise) and deleteClip must happen after
+    // the job rows are gone (FK cascade). Nav happens regardless — the user
+    // is already out of here and we don't want to block on backend latency.
+    (async () => {
+      try {
+        if (jid) {
+          await cancelJob(jid);
+          await deleteJob(jid);
+        }
+        if (cid) await deleteClip(cid);
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn('[generation] cancel cleanup failed', err);
+      }
+    })();
     router.replace('/create/topic' as any);
   };
 

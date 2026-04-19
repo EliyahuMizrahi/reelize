@@ -2,17 +2,32 @@
 
 Stateless: we pass the incoming bearer token through to
 supabase.auth.get_user(token), which asks the Supabase Auth server
-to validate it and return the user. Service-role client is used
-because it has unrestricted access to the Auth API.
+to validate it and return the user. Anon client is sufficient for
+this — service-role is reserved for subsequent DB writes.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Optional
 
 from fastapi import Header, HTTPException, status
 
-from supabase_client import get_supabase
+from supabase_client import get_supabase_anon
+
+log = logging.getLogger(__name__)
+
+# gotrue raises AuthApiError on actual auth failures (bad/expired token).
+# Anything else (httpx timeouts, DNS, etc.) means the Auth service is
+# unreachable — surface as 503, not 401.
+try:
+    from gotrue.errors import AuthApiError  # type: ignore
+except Exception:  # noqa: BLE001
+    try:
+        from supabase.lib.auth_client import AuthApiError  # type: ignore
+    except Exception:  # noqa: BLE001
+        class AuthApiError(Exception):  # type: ignore
+            """Fallback when gotrue isn't importable at this path."""
 
 
 @dataclass
@@ -32,28 +47,24 @@ async def get_current_user(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Empty bearer token")
 
     try:
-        resp = get_supabase().auth.get_user(token)
-    except Exception as e:  # noqa: BLE001
+        resp = get_supabase_anon().auth.get_user(token)
+    except AuthApiError:
+        # Real auth failure: invalid signature, expired, revoked. Log full
+        # detail server-side but don't leak it to the caller.
+        log.info("auth: token rejected by Supabase", exc_info=True)
         raise HTTPException(
-            status.HTTP_401_UNAUTHORIZED, f"Invalid token: {e}"
-        ) from e
+            status.HTTP_401_UNAUTHORIZED, "Invalid or expired token"
+        )
+    except Exception:  # noqa: BLE001 — transport/unknown
+        log.exception("auth: Supabase Auth call failed")
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "Auth service unavailable"
+        )
 
     user = getattr(resp, "user", None)
     user_id = getattr(user, "id", None) if user else None
     if not user_id:
         raise HTTPException(
-            status.HTTP_401_UNAUTHORIZED, "Token did not resolve to a user"
+            status.HTTP_401_UNAUTHORIZED, "Invalid or expired token"
         )
     return CurrentUser(id=str(user_id), email=getattr(user, "email", None))
-
-
-async def get_optional_user(
-    authorization: Optional[str] = Header(default=None),
-) -> Optional[CurrentUser]:
-    """Like `get_current_user` but returns None instead of 401 when no token."""
-    if not authorization:
-        return None
-    try:
-        return await get_current_user(authorization=authorization)
-    except HTTPException:
-        return None

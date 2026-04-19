@@ -16,6 +16,51 @@ async function requireUserId(): Promise<string> {
   return uid;
 }
 
+// ---------- Profile ----------
+
+/**
+ * Patch the `profiles` row for a user. Email changes go through
+ * `supabase.auth.updateUser` first — Supabase owns the canonical email on
+ * `auth.users`, and our `profiles` table doesn't carry a mirror column, so
+ * the auth write is the one and only write needed for email.
+ *
+ * Password changes are intentionally NOT handled here — call
+ * `updatePassword` separately so it can't silently piggy-back on a profile
+ * edit.
+ */
+export async function updateProfile(
+  userId: string,
+  patch: {
+    username?: string;
+    email?: string;
+    avatar_url?: string | null;
+  },
+): Promise<void> {
+  if (patch.email !== undefined) {
+    const { error: authErr } = await supabase.auth.updateUser({
+      email: patch.email,
+    });
+    if (authErr) throw authErr;
+  }
+
+  const update: Update<'profiles'> = {};
+  if (patch.username !== undefined) update.username = patch.username;
+  if (patch.avatar_url !== undefined) update.avatar_url = patch.avatar_url;
+
+  if (Object.keys(update).length === 0) return;
+
+  const { error } = await supabase
+    .from('profiles')
+    .update(update)
+    .eq('id', userId);
+  if (error) throw error;
+}
+
+export async function updatePassword(newPassword: string): Promise<void> {
+  const { error } = await supabase.auth.updateUser({ password: newPassword });
+  if (error) throw error;
+}
+
 // ---------- Classes ----------
 
 export async function createClass(input: {
@@ -162,6 +207,158 @@ export async function deleteJob(id: string): Promise<void> {
   if (error) throw error;
 }
 
+// ---------- Templates ----------
+
+/**
+ * Snapshot a completed job's sfx manifest + video_analysis (and the source
+ * clip's style_dna, if present) into a new template row. The snapshots are
+ * copies — deleting the source job/clip later leaves the template intact.
+ *
+ * Shape note: `sfx_manifest` is stored as `{ items: SfxItem[] }` — i.e.
+ * just the SFX portion of `jobs.audio_manifest`, not the whole audio blob.
+ * Downstream readers (SFX review, generation) only know how to read the
+ * items key, so writing the full audio manifest here would break them.
+ */
+export async function createTemplateFromJob(input: {
+  jobId: string;
+  classId?: string | null;
+  name: string;
+  description?: string | null;
+}): Promise<Row<'templates'>> {
+  const user_id = await requireUserId();
+
+  // Pull the job's manifests + its linked clip's style DNA in one trip each.
+  // (Two round-trips is fine here — template creation is a deliberate action,
+  // not a hot path.)
+  const { data: job, error: je } = await supabase
+    .from('jobs')
+    .select(
+      'id, clip_id, audio_manifest, video_analysis, clip_context, source_url',
+    )
+    .eq('id', input.jobId)
+    .maybeSingle();
+  if (je) throw je;
+  if (!job) throw new Error(`Job ${input.jobId} not found`);
+
+  let style_dna: Row<'templates'>['style_dna'] = null;
+  let source_clip_id: string | null = job.clip_id ?? null;
+  let thumbnail_color: string | null = null;
+  let duration_s: number | null = null;
+  if (source_clip_id) {
+    const { data: clip, error: ce } = await supabase
+      .from('clips')
+      .select('style_dna, thumbnail_color, duration_s')
+      .eq('id', source_clip_id)
+      .maybeSingle();
+    if (ce) throw ce;
+    if (clip) {
+      style_dna = clip.style_dna;
+      thumbnail_color = clip.thumbnail_color;
+      duration_s = clip.duration_s;
+    }
+  }
+
+  // Narrow the audio_manifest down to just the SFX slice. Backend shapes:
+  //   audio_manifest = { sfx: { items: [...] }, voices: {...}, ... }
+  // Template consumers only look at sfx_manifest.items, so we hand them
+  // exactly that sub-object (or null if the job didn't produce SFX).
+  const am = (job.audio_manifest ?? null) as
+    | { sfx?: unknown }
+    | null;
+  const sfx_manifest = am && typeof am === 'object' ? am.sfx ?? null : null;
+
+  const payload: Insert<'templates'> = {
+    user_id,
+    class_id: input.classId ?? null,
+    source_clip_id,
+    source_job_id: job.id,
+    name: input.name.trim(),
+    description: input.description?.trim() || null,
+    sfx_manifest: sfx_manifest as Insert<'templates'>['sfx_manifest'],
+    video_analysis: job.video_analysis,
+    style_dna,
+    thumbnail_color,
+    duration_s,
+  };
+
+  const { data, error } = await supabase
+    .from('templates')
+    .insert(payload)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateTemplate(
+  id: string,
+  patch: {
+    name?: string;
+    description?: string | null;
+    classId?: string | null;
+  },
+): Promise<Row<'templates'>> {
+  const update: Update<'templates'> = {};
+  if (patch.name !== undefined) update.name = patch.name;
+  if (patch.description !== undefined) update.description = patch.description;
+  if (patch.classId !== undefined) update.class_id = patch.classId;
+  const { data, error } = await supabase
+    .from('templates')
+    .update(update)
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteTemplate(id: string): Promise<void> {
+  const { error } = await supabase.from('templates').delete().eq('id', id);
+  if (error) throw error;
+}
+
+/**
+ * Stub. Creates a clip row seeded from a template's manifests and flips it
+ * to 'generating'. Real video synthesis isn't wired up yet — the caller
+ * navigates to the generation screen, which renders the theatrical timeline
+ * and (currently) leaves the clip in 'generating' until the backend worker
+ * exists.
+ */
+export async function generateClipFromTemplate(input: {
+  templateId: string;
+  topicId: string;
+  title: string;
+}): Promise<Row<'clips'>> {
+  const user_id = await requireUserId();
+
+  const { data: tpl, error: te } = await supabase
+    .from('templates')
+    .select('*')
+    .eq('id', input.templateId)
+    .maybeSingle();
+  if (te) throw te;
+  if (!tpl) throw new Error(`Template ${input.templateId} not found`);
+
+  const payload: Insert<'clips'> = {
+    user_id,
+    topic_id: input.topicId,
+    template_id: tpl.id,
+    title: input.title.trim(),
+    duration_s: tpl.duration_s != null ? Math.round(Number(tpl.duration_s)) : null,
+    thumbnail_color: tpl.thumbnail_color ?? palette.tealDeep,
+    style_dna: tpl.style_dna,
+    status: 'generating',
+  };
+
+  const { data, error } = await supabase
+    .from('clips')
+    .insert(payload)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
 // ---------- Activity ----------
 
 export async function logActivity(
@@ -181,6 +378,42 @@ export async function logActivity(
 }
 
 // ---------- Unsorted helper ----------
+
+/**
+ * Find-or-create a topic inside a specific class. Used when we have a class
+ * context (e.g. generating a clip from a template filed under that class) but
+ * no specific topic — we pick the first topic of the class, or create a
+ * default "Clips" topic if the class is empty.
+ */
+export async function ensureTopicInClass(
+  classId: string,
+  topicName = 'Clips',
+): Promise<{ topicId: string }> {
+  const user_id = await requireUserId();
+
+  const { data: existing, error: fe } = await supabase
+    .from('topics')
+    .select('id')
+    .eq('class_id', classId)
+    .eq('user_id', user_id)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (fe) throw fe;
+  if (existing) return { topicId: existing.id };
+
+  const { data, error } = await supabase
+    .from('topics')
+    .insert({
+      user_id,
+      class_id: classId,
+      name: topicName,
+    } satisfies Insert<'topics'>)
+    .select('id')
+    .single();
+  if (error) throw error;
+  return { topicId: data.id };
+}
 
 /**
  * Find-or-create the user's "Unsorted" class + topic pair.

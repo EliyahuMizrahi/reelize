@@ -31,10 +31,21 @@ def write_json(path: Path, data: Any) -> None:
         json.dump(data, f, indent=2, default=json_default)
 
 
-def run_ffmpeg(args: list[str], *, check: bool = True) -> subprocess.CompletedProcess:
-    """Run ffmpeg quietly and raise with stderr if it fails."""
+def run_ffmpeg(
+    args: list[str],
+    *,
+    check: bool = True,   # TODO: no caller passes check=False; drop if still true after a few sprints.
+    timeout: float = 300.0,
+) -> subprocess.CompletedProcess:
+    """Run ffmpeg quietly and raise with stderr if it fails or times out."""
     cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", *args]
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(
+            f"ffmpeg timed out after {e.timeout}s:\n"
+            f"  cmd: {' '.join(cmd)}"
+        ) from e
     if check and proc.returncode != 0:
         raise RuntimeError(
             f"ffmpeg failed (code {proc.returncode}):\n"

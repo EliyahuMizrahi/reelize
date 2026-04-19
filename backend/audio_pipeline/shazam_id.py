@@ -37,7 +37,6 @@ class MusicSection:
     full_song_path: str | None = None
     exact_offset: float | None = None
     alignment_correction: float | None = None
-    gain: float | None = None
 
     def __post_init__(self) -> None:
         self.song_time_base = round(self.song_offset_start - self.video_start, 3)
@@ -56,7 +55,6 @@ class MusicSection:
             "full_song_path": self.full_song_path,
             "exact_offset": self.exact_offset,
             "alignment_correction": self.alignment_correction,
-            "gain": self.gain,
         }
 
 
@@ -96,18 +94,36 @@ class ShazamIdentifier:
         self._shazam = Shazam()
         cfg.chunks_dir.mkdir(parents=True, exist_ok=True)
 
-    async def _shazam_segment(self, start: float, end: float, label: str = "") -> dict | None:
-        """Cut [start, end] from the BG stem and run Shazam on it."""
+    async def _shazam_segment(
+        self,
+        start: float,
+        end: float,
+        label: str = "",
+        pad_to: float | None = None,
+    ) -> dict | None:
+        """Cut [start, end] from the BG stem and run Shazam on it.
+
+        Always sleeps `cfg.shazam_rate_limit` before returning (in `finally`)
+        so rate-limiting applies to misses and exceptions too, not only hits.
+
+        If `pad_to` is given and the cut is shorter than `pad_to` seconds, pad
+        the tail with silence up to `pad_to`. Used for short tail chunks so
+        Shazam still gets a chunk_size-long input it can match against.
+        """
         tag = f"{int(start * 100):06d}_{int(end * 100):06d}"
         path = self.cfg.chunks_dir / f"seg_{tag}.wav"
+        ffmpeg_cmd = [
+            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            "-i", str(self.background_music),
+            "-ss", str(start), "-to", str(end),
+            "-ar", "16000", "-ac", "1",
+        ]
+        if pad_to is not None and pad_to > (end - start):
+            # Pad the audio with silence to reach pad_to seconds total.
+            ffmpeg_cmd += ["-af", f"apad=whole_dur={pad_to}"]
+        ffmpeg_cmd.append(str(path))
         proc = subprocess.run(
-            [
-                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-                "-i", str(self.background_music),
-                "-ss", str(start), "-to", str(end),
-                "-ar", "16000", "-ac", "1",
-                str(path),
-            ],
+            ffmpeg_cmd,
             capture_output=True,
         )
         if proc.returncode != 0 or not path.exists() or path.stat().st_size == 0:
@@ -116,10 +132,10 @@ class ShazamIdentifier:
                 "ffmpeg segment cut failed (%.1f→%.1fs, code=%d): %s",
                 start, end, proc.returncode, stderr,
             )
+            # No Shazam call happened, so don't rate-limit-sleep here.
             return None
         try:
             out = await self._shazam.recognize(str(path))
-            await asyncio.sleep(self.cfg.shazam_rate_limit)
             if "track" not in out:
                 return None
             track = out["track"]
@@ -140,6 +156,9 @@ class ShazamIdentifier:
         except Exception as e:
             log.debug("  %s %.1f→%.1fs ❌ (%s)", label, start, end, e)
             return None
+        finally:
+            # Rate-limit applies to every Shazam attempt — hit, miss, or raise.
+            await asyncio.sleep(self.cfg.shazam_rate_limit)
 
     async def _identify_region(self, reg_start: float, reg_end: float) -> list[MusicSection]:
         """Identify all song sections inside one music region."""
@@ -153,9 +172,14 @@ class ShazamIdentifier:
         t = reg_start
         while t < reg_end:
             end = min(t + chunk, reg_end)
-            if end - t < 3:
+            remaining = end - t
+            if remaining < 1.0:
+                # Not enough signal even with padding to be useful.
                 break
-            r = await self._shazam_segment(t, end, label="[coarse]")
+            # Short tail chunks: pad with silence to chunk length so Shazam
+            # still has a full-sized window to match against.
+            pad_to = chunk if remaining < chunk else None
+            r = await self._shazam_segment(t, end, label="[coarse]", pad_to=pad_to)
             if r is not None:
                 all_hits.append({"video_time": t, "song_offset": r["song_offset"],
                                  "result": r, "end": end, "type": "coarse"})

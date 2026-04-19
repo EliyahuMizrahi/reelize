@@ -23,6 +23,7 @@ import { palette, spacing } from '@/constants/tokens';
 import { ENTER, stagger } from '@/components/ui/motion';
 import { useProfileStats, useActivity } from '@/data/hooks';
 import type { Row } from '@/types/supabase';
+import { formatRelative } from '@/lib/format';
 
 type ActivityRow = Row<'activity'>;
 
@@ -31,21 +32,6 @@ function joinedFormatted(iso: string | null | undefined): string {
   const d = new Date(iso);
   const month = d.toLocaleString('en-US', { month: 'long' }).toLowerCase();
   return `joined ${month} ${d.getUTCFullYear()}`;
-}
-
-function formatRelative(iso: string): string {
-  const then = new Date(iso).getTime();
-  const now = Date.now();
-  const diff = Math.max(0, now - then);
-  const h = Math.floor(diff / 3_600_000);
-  if (h < 1) return 'just now';
-  if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24);
-  if (d < 7) return `${d}d ago`;
-  const w = Math.floor(d / 7);
-  if (w < 5) return `${w}w ago`;
-  const mo = Math.floor(d / 30);
-  return `${mo}mo ago`;
 }
 
 export default function DashboardScreen() {

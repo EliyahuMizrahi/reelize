@@ -19,7 +19,6 @@ export type NoctisVariant =
   | 'watching'     // silhouette with animated blink/tilt
   | 'perched'      // crow on a branch (taller viewBox)
   | 'head'         // cropped to head+eye (avatar-friendly)
-  | 'shards'       // scattered pieces (pre-assembly / deconstructed)
   | 'scroll'       // perched with a scroll in beak (empty state for library)
   | 'mark';        // lockup mark — clean silhouette, no animation, full detail
 
@@ -70,20 +69,6 @@ export function Noctis({
     'M 38 64 L 72 42 L 92 40 L 108 50 L 94 58 L 76 64 L 56 82 Z';
   // Beak sliver (sharp)
   const beakTip = 'M 92 42 L 110 48 L 94 54 Z';
-
-  if (variant === 'shards') {
-    return (
-      <Svg width={size} height={size} viewBox="0 0 120 120">
-        <Path d="M 10 40 L 34 30 L 28 58 Z" fill={color} opacity={0.85} />
-        <Path d="M 52 22 L 78 28 L 66 50 Z" fill={color} opacity={0.7} />
-        <Path d="M 92 38 L 112 48 L 94 58 Z" fill={color} opacity={0.9} />
-        <Path d="M 78 70 L 104 78 L 80 94 Z" fill={color} opacity={0.6} />
-        <Path d="M 42 82 L 66 76 L 60 100 L 42 96 Z" fill={color} opacity={0.5} />
-        <Path d="M 16 72 L 38 66 L 34 92 L 20 94 Z" fill={color} opacity={0.78} />
-        <Circle cx={96} cy={48} r={2.2} fill={eyeColor} />
-      </Svg>
-    );
-  }
 
   if (variant === 'head') {
     return (

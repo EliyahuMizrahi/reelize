@@ -4,6 +4,9 @@ services:
     image: reelize-backend:latest
     container_name: reelize-backend
     ports:
+      # Exposed on all interfaces so an Expo dev client on a phone/other LAN
+      # device can reach the backend. For prod, switch to "127.0.0.1:8000:8000"
+      # behind a reverse proxy (nginx/Caddy) instead.
       - "8000:8000"
     # Stability knobs for arm64 hosts (Windows-on-ARM / Apple Silicon):
     # - single-threaded BLAS/OpenMP avoids a SIGTRAP (exit 133) we were hitting
@@ -25,13 +28,26 @@ services:
       - torch-cache:/cache/torch
       - whisper-cache:/cache/whisper
       - demucs-cache:/root/.cache/demucs
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
+    # Give in-flight jobs a real chance to flush before SIGKILL. Whisper /
+    # demucs / ffmpeg can be in the middle of writing a clip when we stop.
+    stop_grace_period: 120s
+    # Cap log volume so a chatty run doesn't fill the disk.
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 7g
+      # GPU reservation (uncomment + use docker-compose.gpu.yml overlay):
+      # resources:
+      #   reservations:
+      #     devices:
+      #       - driver: nvidia
+      #         count: all
+      #         capabilities: [gpu]
     restart: unless-stopped
 
 volumes:

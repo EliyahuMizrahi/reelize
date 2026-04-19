@@ -15,6 +15,7 @@ import {
   selectSfx,
   type SfxItemWithUrl,
 } from '@/services/api';
+import { SaveTemplateModal } from '@/components/create/SaveTemplateModal';
 
 /* ========================================================
    Helpers
@@ -49,6 +50,9 @@ function SfxRow({
   return (
     <Pressable
       onPress={onToggle}
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: selected }}
+      accessibilityLabel={`SFX at ${formatTime(item.video_time)}${selected ? ', kept' : ', dropped'}`}
       style={({ pressed }) => ({
         flexDirection: 'row',
         alignItems: 'center',
@@ -69,6 +73,8 @@ function SfxRow({
           onPlayToggle();
         }}
         hitSlop={12}
+        accessibilityRole="button"
+        accessibilityLabel={isPlaying ? 'Pause SFX preview' : 'Play SFX preview'}
         style={({ pressed }) => ({
           width: 40,
           height: 40,
@@ -134,6 +140,11 @@ export default function SfxReviewScreen() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [playingId, setPlayingId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+  const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
+  // sfx-review with no clipId = pure deconstruction flow. In that mode we
+  // surface "Save as template" as the natural completion; generation-mode
+  // (clipId present) keeps the Confirm → player flow untouched.
+  const isDeconstructionMode = !clipId;
 
   const soundRef = useRef<Audio.Sound | null>(null);
 
@@ -223,21 +234,35 @@ export default function SfxReviewScreen() {
   };
 
   const goToPlayer = () => {
-    if (clipId) router.replace(`/player/${clipId}` as any);
-    else router.replace('/(tabs)/feed' as any);
+    if (clipId) {
+      router.replace(`/player/${clipId}` as any);
+      return;
+    }
+    // Deconstruction flow pushes us here without a clipId — no player to
+    // land on, so return to the screen that opened us. `feed` is hidden on
+    // mobile (href:null), so replacing to it bounces the user to library.
+    if (router.canGoBack?.()) router.back();
+    else router.replace('/(tabs)/create' as any);
   };
 
   const onConfirm = async () => {
     if (!items || !jobId) return goToPlayer();
     setSaving(true);
+    // The backend handler is atomic — once the POST leaves the device the
+    // selection is saved regardless of whether we receive the ack. Some dev
+    // network paths (docker bridge + Metro proxy) occasionally stall the
+    // response body, which used to leave the button stuck on "Saving…".
+    // Race the fetch against a short timeout so the UI always unlocks.
+    const ack = selectSfx(jobId, Array.from(selected)).catch((err) => {
+      // eslint-disable-next-line no-console
+      console.warn('[sfx-review] selectSfx failed', err);
+    });
+    const timeout = new Promise<void>((resolve) => setTimeout(resolve, 4000));
     try {
-      await selectSfx(jobId, Array.from(selected));
+      await Promise.race([ack, timeout]);
       if (Platform.OS !== 'web') {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
       }
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.warn('[sfx-review] selectSfx failed', err);
     } finally {
       setSaving(false);
       goToPlayer();
@@ -247,6 +272,17 @@ export default function SfxReviewScreen() {
   const onSkip = () => {
     if (Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
     goToPlayer();
+  };
+
+  // In deconstruction mode we first lock in the SFX keepers (fire-and-forget,
+  // same pattern as onConfirm), then open the Save-as-template sheet.
+  const onSaveTemplate = async () => {
+    if (!jobId) return;
+    if (items && items.length > 0) {
+      selectSfx(jobId, Array.from(selected)).catch(() => {});
+    }
+    if (Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
+    setSaveTemplateOpen(true);
   };
 
   /* -------------- Render -------------- */
@@ -328,28 +364,62 @@ export default function SfxReviewScreen() {
       >
         {items && items.length > 0 ? (
           <Mono color={colors.mutedText as string}>
-            {selected.size} of {items.length} kept · rest will be deleted
+            {selected.size} of {items.length} kept · the rest will be hidden from this session
           </Mono>
         ) : null}
-        <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-          <Button
-            title="Skip"
-            variant="secondary"
-            onPress={onSkip}
-            disabled={saving}
-          />
-          <View style={{ flex: 1 }}>
+        {isDeconstructionMode ? (
+          <View style={{ gap: spacing.sm }}>
             <Button
-              title={saving ? 'Saving…' : 'Confirm'}
+              title="Save as template"
               variant="shimmer"
               fullWidth
-              disabled={saving || items === null}
-              onPress={onConfirm}
-              leading={<Feather name="check" size={18} color={palette.ink} />}
+              disabled={saving || !jobId}
+              onPress={onSaveTemplate}
+              leading={<Feather name="bookmark" size={18} color={palette.ink} />}
+            />
+            <Button
+              title="Skip — don't save"
+              variant="tertiary"
+              fullWidth
+              onPress={onSkip}
+              disabled={saving}
             />
           </View>
-        </View>
+        ) : (
+          <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+            <Button
+              title="Skip"
+              variant="secondary"
+              onPress={onSkip}
+              disabled={saving}
+            />
+            <View style={{ flex: 1 }}>
+              <Button
+                title={saving ? 'Saving…' : 'Confirm'}
+                variant="shimmer"
+                fullWidth
+                disabled={saving || items === null}
+                onPress={onConfirm}
+                leading={<Feather name="check" size={18} color={palette.ink} />}
+              />
+            </View>
+          </View>
+        )}
       </View>
+
+      <SaveTemplateModal
+        open={saveTemplateOpen}
+        jobId={jobId || null}
+        defaultName={topic && topic !== 'Your lesson' ? topic : ''}
+        onClose={() => setSaveTemplateOpen(false)}
+        onSaved={({ classId }) => {
+          setSaveTemplateOpen(false);
+          router.replace({
+            pathname: '/(tabs)/library',
+            params: { tab: 'templates', course: classId ?? '' },
+          } as any);
+        }}
+      />
     </Screen>
   );
 }

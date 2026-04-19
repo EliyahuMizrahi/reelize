@@ -34,6 +34,12 @@ const SIZES: Record<ButtonSize, { py: number; px: number; font: 'body' | 'bodyLg
   lg: { py: 16, px: 22, font: 'bodyLg', min: 56 },
 };
 
+// Fails loudly in dev when a new variant is added without a branch. The
+// `never` parameter makes TS surface the missing case at compile time, too.
+function assertNever(x: never): never {
+  throw new Error(`unexpected Button variant: ${String(x)}`);
+}
+
 export function Button({
   title,
   children,
@@ -75,6 +81,8 @@ export function Button({
         return palette.mist;
       case 'shimmer':
         return palette.ink;
+      default:
+        return assertNever(variant);
     }
   })();
 
@@ -107,6 +115,8 @@ export function Button({
         return palette.alert;
       case 'shimmer':
         return 'transparent';
+      default:
+        return assertNever(variant);
     }
   })();
 

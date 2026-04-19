@@ -40,7 +40,6 @@ export default function SignInScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [fieldFocus, setFieldFocus] = useState<'email' | 'password' | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   const canSubmit = email.trim().length > 0 && password.length > 0 && !isLoading;
@@ -57,7 +56,8 @@ export default function SignInScreen() {
     setIsLoading(true);
     try {
       await login(email.trim().toLowerCase(), password);
-      router.replace('/(tabs)/feed');
+      // `feed` is hidden on mobile (href:null), library is the real home.
+      router.replace('/(tabs)/library');
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Something went wrong.';
       setError(msg);
@@ -107,10 +107,11 @@ export default function SignInScreen() {
           setEmail(t);
           if (error) setError(null);
         }}
-        onFocus={() => setFieldFocus('email')}
-        onBlur={() => setFieldFocus(null)}
         variant="boxed"
-        error={error && fieldFocus !== 'password' ? error : null}
+        // Surface the error on the email field whenever one is set — prior
+        // behavior only showed it when the password field wasn't focused,
+        // which meant typing-and-retrying silently swallowed the message.
+        error={error}
         returnKeyType="next"
       />
       <TextField
@@ -124,8 +125,6 @@ export default function SignInScreen() {
           setPassword(t);
           if (error) setError(null);
         }}
-        onFocus={() => setFieldFocus('password')}
-        onBlur={() => setFieldFocus(null)}
         variant="boxed"
         returnKeyType="go"
         onSubmitEditing={handleSignIn}

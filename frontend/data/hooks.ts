@@ -9,9 +9,13 @@ import {
   fetchClass,
   fetchClasses,
   fetchClip,
+  fetchClipsForClass,
   fetchClipsForTopic,
   fetchFeed,
   fetchProfileStats,
+  fetchTemplate,
+  fetchTemplatesForClass,
+  fetchTemplatesForUser,
   fetchTopic,
   fetchTopicsForClass,
   type ClassWithCounts,
@@ -21,35 +25,85 @@ import { supabase } from '@/lib/supabase';
 import type { Row } from '@/types/supabase';
 
 /**
- * Subscribe to clips-table changes and invoke `refresh()` on every event.
- * RLS filters the broadcast to only rows the current user owns, so we don't
- * need a user-scoped filter. Pass a Postgres filter string (e.g.
- * `topic_id=eq.<uuid>`) to narrow further.
+ * Subscribe to a Supabase table's postgres_changes broadcast and call
+ * `refresh()` on every event. RLS filters the broadcast to rows the current
+ * user owns, so a user-scoped filter isn't required. `filter` can narrow
+ * further (e.g. `topic_id=eq.<uuid>`).
+ *
+ * TODO(Resource #14): share a single channel per (table, filter) at the
+ * AuthProvider level and fan out to subscribers — right now every hook
+ * instance opens its own channel, which will hit the 100-channel Supabase
+ * cap quickly on list screens. The shared-cache below is a minimum viable
+ * refcount; the full fix lives with a context-level manager.
  */
-function useClipsLiveRefresh(refresh: () => void, filter?: string): void {
-  const refreshRef = useRef(refresh);
-  refreshRef.current = refresh;
-  const idRef = useRef<string>('');
-  if (!idRef.current) idRef.current = Math.random().toString(36).slice(2, 10);
 
-  useEffect(() => {
+interface SharedChannelEntry {
+  channel: ReturnType<typeof supabase.channel>;
+  listeners: Set<() => void>;
+  refCount: number;
+}
+
+const sharedChannels = new Map<string, SharedChannelEntry>();
+
+function acquireSharedChannel(
+  table: 'clips' | 'templates',
+  filter: string | undefined,
+  listener: () => void,
+): () => void {
+  const key = `${table}::${filter ?? ''}`;
+  let entry = sharedChannels.get(key);
+  if (!entry) {
+    const listeners = new Set<() => void>();
     const channel = supabase
-      .channel(`clips-live-${idRef.current}`)
+      .channel(`shared-${table}-${Math.random().toString(36).slice(2, 8)}`)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
-          table: 'clips',
+          table,
           ...(filter ? { filter } : {}),
         },
-        () => refreshRef.current(),
+        () => {
+          for (const cb of listeners) cb();
+        },
       )
       .subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [filter]);
+    entry = { channel, listeners, refCount: 0 };
+    sharedChannels.set(key, entry);
+  }
+  entry.listeners.add(listener);
+  entry.refCount += 1;
+  return () => {
+    const e = sharedChannels.get(key);
+    if (!e) return;
+    e.listeners.delete(listener);
+    e.refCount -= 1;
+    if (e.refCount <= 0) {
+      supabase.removeChannel(e.channel);
+      sharedChannels.delete(key);
+    }
+  };
+}
+
+function useLiveRefresh(
+  table: 'clips' | 'templates',
+  refresh: () => void,
+  filter?: string,
+): void {
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
+
+  useEffect(() => {
+    const release = acquireSharedChannel(table, filter, () =>
+      refreshRef.current(),
+    );
+    return release;
+  }, [table, filter]);
+}
+
+function useClipsLiveRefresh(refresh: () => void, filter?: string): void {
+  useLiveRefresh('clips', refresh, filter);
 }
 
 export interface AsyncResult<T> {
@@ -60,38 +114,48 @@ export interface AsyncResult<T> {
 }
 
 /**
- * Generic async runner that cancels in-flight results on unmount or dep change.
+ * Generic async runner that cancels in-flight results on unmount or dep
+ * change. Creates a fresh `AbortController` per run and passes `signal` into
+ * the async function if it accepts one (so `fetch`/Supabase can bail), and
+ * uses a monotonic tick counter to ignore stale resolves from superseded
+ * runs.
  */
 export function useAsync<T>(
-  run: () => Promise<T>,
+  run: (signal?: AbortSignal) => Promise<T>,
   deps: unknown[],
 ): AsyncResult<T> {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [tick, setTick] = useState(0);
+  const tickRef = useRef(0);
 
   const refresh = useCallback(() => setTick((t) => t + 1), []);
 
   useEffect(() => {
-    let cancelled = false;
+    tickRef.current += 1;
+    const myTick = tickRef.current;
+    const controller = new AbortController();
+
     setLoading(true);
     setError(null);
-    run()
+    Promise.resolve()
+      .then(() => run(controller.signal))
       .then((result) => {
-        if (!cancelled) {
-          setData(result);
-          setLoading(false);
-        }
+        if (tickRef.current !== myTick) return;
+        setData(result);
+        setLoading(false);
       })
       .catch((err) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err : new Error(String(err)));
-          setLoading(false);
-        }
+        if (tickRef.current !== myTick) return;
+        // AbortError on unmount/dep-change is expected — drop silently.
+        if ((err as { name?: string })?.name === 'AbortError') return;
+        setError(err instanceof Error ? err : new Error(String(err)));
+        setLoading(false);
       });
+
     return () => {
-      cancelled = true;
+      controller.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, tick]);
@@ -170,6 +234,20 @@ export function useClipsForTopic(
   return result;
 }
 
+export function useClipsForClass(
+  classId: string | undefined,
+): AsyncResult<Row<'clips'>[]> {
+  const result = useAsync<Row<'clips'>[]>(
+    () => {
+      if (!classId) return Promise.resolve([]);
+      return fetchClipsForClass(classId);
+    },
+    [classId],
+  );
+  useClipsLiveRefresh(result.refresh);
+  return result;
+}
+
 export function useClip(id: string | undefined): AsyncResult<Row<'clips'>> {
   const result = useAsync<Row<'clips'> | null>(
     () => {
@@ -183,6 +261,57 @@ export function useClip(id: string | undefined): AsyncResult<Row<'clips'>> {
     id ? `id=eq.${id}` : undefined,
   );
   return result as AsyncResult<Row<'clips'>>;
+}
+
+export function useTemplatesForClass(
+  classId: string | undefined,
+): AsyncResult<Row<'templates'>[]> {
+  const result = useAsync<Row<'templates'>[]>(
+    () => {
+      if (!classId) return Promise.resolve([]);
+      return fetchTemplatesForClass(classId);
+    },
+    [classId],
+  );
+  useLiveRefresh(
+    'templates',
+    result.refresh,
+    classId ? `class_id=eq.${classId}` : undefined,
+  );
+  return result;
+}
+
+export function useTemplatesForUser(): AsyncResult<Row<'templates'>[]> {
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
+  const result = useAsync<Row<'templates'>[]>(
+    () => {
+      if (!userId) return Promise.resolve([]);
+      return fetchTemplatesForUser(userId);
+    },
+    [userId],
+  );
+  useLiveRefresh('templates', result.refresh);
+  if (!userId) return emptyResult();
+  return result;
+}
+
+export function useTemplate(
+  id: string | undefined,
+): AsyncResult<Row<'templates'>> {
+  const result = useAsync<Row<'templates'> | null>(
+    () => {
+      if (!id) return Promise.resolve(null);
+      return fetchTemplate(id);
+    },
+    [id],
+  );
+  useLiveRefresh(
+    'templates',
+    result.refresh as () => void,
+    id ? `id=eq.${id}` : undefined,
+  );
+  return result as AsyncResult<Row<'templates'>>;
 }
 
 export function useFeed(limit = 30): AsyncResult<Row<'clips'>[]> {

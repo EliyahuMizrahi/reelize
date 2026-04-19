@@ -6,7 +6,7 @@ import shutil
 from pathlib import Path
 from typing import Any, Optional
 
-from .config import PipelineConfig
+from .config import JobCancelled, PipelineConfig
 from .diarize import DiarizationResult, attach_speakers, diarize
 from .download import download_source_audio
 from .manifest import Inputs, build_manifest
@@ -30,6 +30,24 @@ def _emit(cfg: PipelineConfig, event_type: str, message: str,
             log.warning("progress_callback raised (swallowed): %s", e)
 
 
+def _checkpoint(cfg: PipelineConfig) -> None:
+    """Raise JobCancelled if the worker has signaled cancel, and free CUDA mem.
+
+    Called between every major stage so cancellation is responsive without
+    needing to bail mid-subprocess. The CUDA empty_cache also helps us fit
+    demucs+pyannote+whisper in the same ~7.5GB container on Docker Desktop/WSL2.
+    """
+    if cfg.should_cancel is not None and cfg.should_cancel():
+        raise JobCancelled("pipeline cancelled")
+    # Best-effort GPU mem reclaim; no-op if torch/CUDA unavailable.
+    try:
+        import torch  # local import keeps cold-start cheap for non-GPU runs
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 class Pipeline:
     """Extract style features from a short-form video URL.
 
@@ -51,6 +69,7 @@ class Pipeline:
         cfg = self.cfg
 
         # 1. Source audio (skip download if caller pre-extracted it)
+        _checkpoint(cfg)
         if local_audio is not None:
             cfg.source_audio_path.parent.mkdir(parents=True, exist_ok=True)
             if Path(local_audio).resolve() != cfg.source_audio_path.resolve():
@@ -60,6 +79,7 @@ class Pipeline:
             source_audio = download_source_audio(url, cfg)
 
         # 2. Stems (separation + BG mix + vocal trim)
+        _checkpoint(cfg)
         _emit(cfg, "audio.stems.start", "Separating audio stems (demucs)")
         stems = process_stems(source_audio, cfg)
         _emit(
@@ -73,6 +93,7 @@ class Pipeline:
         )
 
         # 3. Transcribe (Whisper on trimmed vocals; remap to original timeline)
+        _checkpoint(cfg)
         _emit(cfg, "audio.transcribe.start", f"Transcribing ({cfg.whisper_model})")
         trimmed_to_orig = make_trimmed_to_original(stems.silence_regions)
         transcript = transcribe(stems.vocals_trimmed, cfg, trimmed_to_original=trimmed_to_orig)
@@ -87,6 +108,7 @@ class Pipeline:
         )
 
         # 4. Diarize (on the ORIGINAL audio — silence removal breaks pyannote)
+        _checkpoint(cfg)
         diar_result: DiarizationResult | None = None
         if cfg.enable_diarization:
             _emit(cfg, "audio.diarize.start", "Identifying speakers")
@@ -103,6 +125,7 @@ class Pipeline:
             )
 
         # 5. Music-presence VAD
+        _checkpoint(cfg)
         _emit(cfg, "audio.music.start", "Detecting music regions")
         music_regions = detect_music_regions(stems.background_music, cfg)
         _emit(
@@ -112,6 +135,7 @@ class Pipeline:
         )
 
         # 6. Shazam per region
+        _checkpoint(cfg)
         _emit(cfg, "audio.shazam.start", f"Identifying songs ({len(music_regions)} region(s))")
         identifier = ShazamIdentifier(stems.background_music, cfg)
         sections = await identifier.identify(music_regions)
@@ -129,6 +153,7 @@ class Pipeline:
         )
 
         # 7. Rhythm (beat grid + energy envelope)
+        _checkpoint(cfg)
         _emit(cfg, "audio.rhythm.start", "Analyzing rhythm and energy")
         rhythm = compute_rhythm(stems.background_music, source_audio, cfg)
         _emit(
@@ -138,6 +163,7 @@ class Pipeline:
         )
 
         # 8. SFX extraction (also downloads full songs + aligns per section)
+        _checkpoint(cfg)
         _emit(cfg, "audio.sfx.start", "Extracting SFX candidates")
         sfx_events = extract_sfx(
             sections, stems.background_music, source_audio, rhythm.beats, cfg,
@@ -149,6 +175,7 @@ class Pipeline:
         )
 
         # 9. Manifest
+        _checkpoint(cfg)
         _emit(cfg, "audio.manifest.start", "Building audio manifest")
         manifest = build_manifest(
             Inputs(

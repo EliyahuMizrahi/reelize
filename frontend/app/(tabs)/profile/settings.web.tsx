@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   ScrollView,
   Pressable,
+  Linking,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
@@ -11,12 +12,17 @@ import Animated from 'react-native-reanimated';
 import { Surface, Divider } from '@/components/ui/Surface';
 import { IconButton } from '@/components/ui/IconButton';
 import { TextField } from '@/components/ui/TextField';
-import { Title, Body, BodySm, Mono, MonoSm, Overline, Headline, Text } from '@/components/ui/Text';
+import { Button } from '@/components/ui/Button';
+import { Title, Body, BodySm, Mono, MonoSm, Overline, Headline } from '@/components/ui/Text';
 import { Noctis } from '@/components/brand/Noctis';
 import { palette, spacing, radii } from '@/constants/tokens';
 import { ENTER } from '@/components/ui/motion';
 import { useAppTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
+// FE-DATA owns these exports; their arrival unblocks profile persistence.
+// Shape (optimistic):
+//   updateProfile(userId, { username?, email?, avatar_url? }): Promise<void>
+import { updateProfile } from '@/data/mutations';
 
 type SectionKey = 'account' | 'data';
 
@@ -82,9 +88,29 @@ function SectionBlock({ title, children }: { title: string; children: React.Reac
 // ───────────────────────── Account ─────────────────────────
 function AccountSection() {
   const { colors } = useAppTheme();
-  const { logout, user } = useAuth();
-  const [email, setEmail] = useState(user?.email ?? '');
+  const { logout, user, profile, session, refreshProfile } = useAuth();
+
+  const identityLabel =
+    profile?.username ??
+    profile?.display_name ??
+    session?.user?.email ??
+    '—';
+
+  const initialEmail = user?.email ?? '';
+  const initialUsername =
+    profile?.username ??
+    profile?.display_name ??
+    '';
+
+  const [email, setEmail] = useState(initialEmail);
+  const [username, setUsername] = useState(initialUsername);
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [banner, setBanner] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+
+  const isDirty = useMemo(() => {
+    return email.trim() !== initialEmail.trim() || username.trim() !== initialUsername.trim();
+  }, [email, username, initialEmail, initialUsername]);
 
   const handleSignOut = async () => {
     if (isSigningOut) return;
@@ -96,9 +122,62 @@ function AccountSection() {
     }
   };
 
+  const handleSave = async () => {
+    if (!user?.id || saving || !isDirty) return;
+    setBanner(null);
+    setSaving(true);
+    try {
+      const patch: { username?: string; email?: string } = {};
+      if (username.trim() !== initialUsername.trim()) patch.username = username.trim();
+      if (email.trim() !== initialEmail.trim()) patch.email = email.trim();
+      await updateProfile(user.id, patch);
+      await refreshProfile?.();
+      setBanner({ kind: 'success', text: 'Saved.' });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Save failed.';
+      setBanner({ kind: 'error', text: msg });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteAccount = () => {
+    // Frontend can't actually delete the account — that needs a service-role
+    // key or a trusted backend endpoint. TODO: wire to a backend
+    // /account/delete endpoint when one exists. For now, funnel users to
+    // support via mailto: so they're not stranded staring at a dead button.
+    const ok = typeof window !== 'undefined'
+      ? window.confirm('Account deletion is handled by support. Open your email client to contact us?')
+      : true;
+    if (!ok) return;
+    const href = 'mailto:support@reelize.app?subject=Delete%20my%20account';
+    if (typeof window !== 'undefined') {
+      window.location.href = href;
+    } else {
+      Linking.openURL(href).catch(() => {});
+    }
+  };
+
   return (
     <View style={{ gap: spacing['2xl'] }}>
       <Headline>Account</Headline>
+
+      {banner ? (
+        <View
+          style={{
+            paddingVertical: spacing.md,
+            paddingHorizontal: spacing.lg,
+            borderRadius: 12,
+            backgroundColor: banner.kind === 'success' ? (palette.sage + '22') : (palette.alert + '22'),
+            borderWidth: 1,
+            borderColor: banner.kind === 'success' ? palette.sage : palette.alert,
+          }}
+        >
+          <BodySm color={banner.kind === 'success' ? palette.sage : palette.alert}>
+            {banner.text}
+          </BodySm>
+        </View>
+      ) : null}
 
       <SectionBlock title="IDENTITY">
         <View style={{ padding: spacing.xl, flexDirection: 'row', alignItems: 'center', gap: spacing.xl }}>
@@ -117,14 +196,29 @@ function AccountSection() {
             <Noctis variant="head" size={44} color={palette.mist} eyeColor={palette.sage} />
           </View>
           <View style={{ flex: 1 }}>
-            <Title>isaac.s</Title>
-            <BodySm muted>joined march 2026 &middot; 56 lessons generated</BodySm>
+            <Title>{identityLabel}</Title>
+            <BodySm muted>{session?.user?.email ?? 'no email on file'}</BodySm>
           </View>
         </View>
         <Divider />
         <View style={{ padding: spacing.xl, gap: spacing.lg }}>
-          <TextField label="Email" value={email} onChangeText={setEmail} />
-          <TextField label="Username" value="isaac.s" />
+          <TextField label="Username" value={username} onChangeText={setUsername} />
+          <TextField
+            label="Email"
+            value={email}
+            onChangeText={setEmail}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="email-address"
+          />
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
+            <Button
+              title={saving ? 'Saving…' : 'Save changes'}
+              variant="primary"
+              disabled={!isDirty || saving}
+              onPress={handleSave}
+            />
+          </View>
         </View>
       </SectionBlock>
 
@@ -138,8 +232,8 @@ function AccountSection() {
         <Divider />
         <Row
           title="Delete account"
-          hint="permanent. your courses go with it."
-          onPress={() => {}}
+          hint="contact support — we can't do this from the browser yet"
+          onPress={handleDeleteAccount}
           right={<Feather name="trash-2" size={14} color={palette.alert} />}
         />
       </SectionBlock>

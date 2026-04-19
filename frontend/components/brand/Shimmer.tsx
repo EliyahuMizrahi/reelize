@@ -8,7 +8,7 @@ import Animated, {
   withTiming,
   Easing,
 } from 'react-native-reanimated';
-import { palette, shimmer, radii } from '@/constants/tokens';
+import { palette, radii } from '@/constants/tokens';
 import { Text } from '@/components/ui/Text';
 
 interface ShimmerBadgeProps {

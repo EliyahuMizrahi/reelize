@@ -1,3 +1,10 @@
+# Minimal dependency list for running audio_pipeline/ as a standalone CLI
+# (i.e. without the FastAPI app around it). The full backend install is in
+# ../requirements.txt — THAT is authoritative; keep this file strictly as a
+# subset. Do not re-pin here; let the top-level file drive versions when both
+# are installed together. If you are building the backend container, you only
+# need ../requirements.txt; this file is for isolated audio experiments.
+
 openai-whisper
 pyannote.audio>=4.0.1
 demucs

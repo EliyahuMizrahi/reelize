@@ -1,7 +1,8 @@
 import { useAppTheme } from "@/contexts/ThemeContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { Tabs } from "expo-router";
+import { Redirect, Tabs } from "expo-router";
 import React from "react";
 import { Platform, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -33,7 +34,13 @@ function TabLabel({ label, color }: { label: string; color: string }) {
 
 export default function TabsLayout() {
   const { colors } = useAppTheme();
+  const { session, isLoading } = useAuth();
   const isWeb = Platform.OS === "web";
+
+  // Block all (tabs) screens for unauthenticated users. A momentary null
+  // return is fine — the splash-equivalent loader lives in app/index.tsx.
+  if (isLoading) return null;
+  if (!session) return <Redirect href="/(auth)/sign-up" />;
 
   if (isWeb) {
     return (

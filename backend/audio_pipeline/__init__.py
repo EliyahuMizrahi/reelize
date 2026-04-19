@@ -16,8 +16,8 @@ The Pipeline can also be run from the command line:
     python -m audio_pipeline "https://youtube.com/shorts/xyz" -o runs/abc123
 """
 
-from .config import PipelineConfig
+from .config import JobCancelled, PipelineConfig
 from .pipeline import Pipeline
 
-__all__ = ["Pipeline", "PipelineConfig"]
+__all__ = ["JobCancelled", "Pipeline", "PipelineConfig"]
 __version__ = "0.1.0"

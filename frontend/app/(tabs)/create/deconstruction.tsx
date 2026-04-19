@@ -25,6 +25,7 @@ import { useAppTheme } from '@/contexts/ThemeContext';
 import { palette, radii, spacing } from '@/constants/tokens';
 import { analyze, cancelJob } from '@/services/api';
 import { useJobStream } from '@/hooks/useJobStream';
+import { SaveTemplateModal } from '@/components/create/SaveTemplateModal';
 
 /* ===========================================================
    Style DNA card — one metric, fills in as real data arrives
@@ -77,6 +78,7 @@ export default function DeconstructionScreen() {
 
   const [jobId, setJobId] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
+  const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
   const cancelledRef = useRef(false);
 
   const stream = useJobStream(jobId);
@@ -181,6 +183,12 @@ export default function DeconstructionScreen() {
       pathname: '/create/sfx-review',
       params: { jobId, topic: '' },
     } as any);
+  };
+
+  const onSaveTemplate = () => {
+    if (!jobId) return;
+    if (Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
+    setSaveTemplateOpen(true);
   };
 
   /* -------------- Render -------------- */
@@ -311,7 +319,9 @@ export default function DeconstructionScreen() {
             <Text variant="body" color={palette.mist} numberOfLines={3}>
               {errorMessage.split('\n')[0].slice(0, 240)}
             </Text>
-            <MonoSm muted>See docker logs for the full trace.</MonoSm>
+            {__DEV__ ? (
+              <MonoSm muted>See docker logs for the full trace.</MonoSm>
+            ) : null}
           </Surface>
         ) : null}
 
@@ -426,8 +436,8 @@ export default function DeconstructionScreen() {
           </View>
         ) : null}
 
-        {/* Event log (compact) — useful for debugging during testing */}
-        {stream.events.length > 0 ? (
+        {/* Event log (compact) — useful for debugging during testing. Dev-only. */}
+        {__DEV__ && stream.events.length > 0 ? (
           <View style={{ gap: spacing.xs }}>
             <Overline muted style={{ letterSpacing: 2.2 }}>
               EVENT LOG
@@ -481,6 +491,16 @@ export default function DeconstructionScreen() {
             leading={<Feather name="music" size={18} color={palette.mist} />}
           />
         ) : null}
+        {isDone ? (
+          <Button
+            title="Save as template"
+            variant="shimmer"
+            size="lg"
+            fullWidth
+            onPress={onSaveTemplate}
+            leading={<Feather name="bookmark" size={18} color={palette.ink} />}
+          />
+        ) : null}
         <Button
           title={
             isFailed
@@ -489,16 +509,27 @@ export default function DeconstructionScreen() {
                 ? 'Done'
                 : `Deconstructing… ${progressPct}%`
           }
-          variant={isDone ? 'shimmer' : isFailed ? 'secondary' : 'tertiary'}
+          variant={isFailed ? 'secondary' : 'tertiary'}
           size="lg"
           fullWidth
           disabled={!isDone && !isFailed}
           onPress={isFailed ? onCancel : onDone}
-          leading={
-            isDone ? <Feather name="check" size={18} color={palette.ink} /> : undefined
-          }
         />
       </View>
+
+      <SaveTemplateModal
+        open={saveTemplateOpen}
+        jobId={jobId}
+        defaultName={null}
+        onClose={() => setSaveTemplateOpen(false)}
+        onSaved={({ classId }) => {
+          setSaveTemplateOpen(false);
+          router.replace({
+            pathname: '/(tabs)/library',
+            params: { tab: 'templates', course: classId ?? '' },
+          } as any);
+        }}
+      />
     </Screen>
   );
 }

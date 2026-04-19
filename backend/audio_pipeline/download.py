@@ -20,17 +20,22 @@ def download_source_audio(url: str, cfg: PipelineConfig) -> Path:
     out_template = cfg.source_audio_path.with_suffix(".%(ext)s")
 
     log.info("Downloading source: %s", url)
-    proc = subprocess.run(
-        [
-            sys.executable, "-m", "yt_dlp", url,
-            "-x", "--audio-format", "wav",
-            "--postprocessor-args", f"ffmpeg:-ar {cfg.source_sample_rate} -ac 1",
-            "-o", str(out_template),
-            "--no-playlist",
-            "--quiet",
-        ],
-        capture_output=True, text=True,
-    )
+    try:
+        proc = subprocess.run(
+            [
+                sys.executable, "-m", "yt_dlp", url,
+                "-x", "--audio-format", "wav",
+                "--postprocessor-args", f"ffmpeg:-ar {cfg.source_sample_rate} -ac 1",
+                "-o", str(out_template),
+                "--no-playlist",
+                "--quiet",
+            ],
+            capture_output=True, text=True, timeout=300,
+        )
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(
+            f"yt-dlp timed out after {e.timeout}s downloading {url}"
+        ) from e
     if not cfg.source_audio_path.exists():
         raise RuntimeError(
             f"yt-dlp failed to produce {cfg.source_audio_path}\n"

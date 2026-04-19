@@ -1,0 +1,31 @@
+# Secrets — never commit real env files
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials*.json
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.vscode/settings.local.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# Node
+node_modules/
+
+# Runtime / generated artifacts
+tmp/
+clips/
+ffmpeg_shared/
+ffmpeg_shared.zip

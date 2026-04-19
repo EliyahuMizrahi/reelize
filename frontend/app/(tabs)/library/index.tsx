@@ -1,5 +1,6 @@
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Alert,
   View,
   ScrollView,
   Pressable,
@@ -11,94 +12,133 @@ import {
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import Animated, {
-  useSharedValue,
   useAnimatedStyle,
+  useSharedValue,
   withTiming,
-  withSpring,
-  Easing,
 } from 'react-native-reanimated';
 
 import { Screen } from '@/components/ui/Screen';
 import {
   Display2,
   Title,
+  TitleSm,
+  Mono,
   MonoSm,
   BodySm,
   Overline,
+  Text,
 } from '@/components/ui/Text';
-import { Chip } from '@/components/ui/Chip';
 import { Button } from '@/components/ui/Button';
+import { IconButton } from '@/components/ui/IconButton';
 import { TextField } from '@/components/ui/TextField';
+import DraggableBottomSheet from '@/components/ui/DraggableBottomSheet';
 import { Noctis } from '@/components/brand/Noctis';
+import { Shards } from '@/components/brand/Shards';
 import { useAppTheme } from '@/contexts/ThemeContext';
-import { palette, radii, spacing, motion } from '@/constants/tokens';
-import { ENTER, stagger } from '@/components/ui/motion';
+import { palette, radii, spacing } from '@/constants/tokens';
+import { ENTER } from '@/components/ui/motion';
+import { formatRelative, summarizeTemplate } from '@/lib/format';
 
-import { useClasses } from '@/data/hooks';
-import { createClass } from '@/data/mutations';
+import {
+  useClasses,
+  useClipsForClass,
+  useTemplatesForUser,
+} from '@/data/hooks';
+import {
+  createClass,
+  deleteClass,
+  deleteTemplate,
+  ensureTopicInClass,
+  generateClipFromTemplate,
+  updateTemplate,
+} from '@/data/mutations';
 import type { ClassWithCounts } from '@/data/queries';
-
-type FilterKey = 'all' | 'recent';
-
-const FILTERS: { key: FilterKey; label: string }[] = [
-  { key: 'all', label: 'All' },
-  { key: 'recent', label: 'Recent' },
-];
+import type { Row } from '@/types/supabase';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const H_PAD = spacing.xl;
-const GAP = spacing.md + 2;
-const COL_W = (SCREEN_W - H_PAD * 2 - GAP) / 2;
-const CARD_H = Math.round(COL_W * 1.25); // 4:5
+const GRID_GAP = spacing.md;
+const CLIP_COL_W = (SCREEN_W - H_PAD * 2 - GRID_GAP) / 2;
+const CLIP_CARD_H = Math.round(CLIP_COL_W * (13 / 9));
 
+// Course names shrink aggressively past 6 chars (2pt per extra char, floor
+// 24pt). adjustsFontSizeToFit on the Display2 acts as a final safety net so
+// the name is never truncated with "..." on narrow devices.
+const COURSE_NAME_BASE = 44;
+const COURSE_NAME_MIN = 24;
+function courseNameSizeStyle(name?: string | null) {
+  const len = name?.length ?? 0;
+  if (len <= 6) return undefined;
+  const size = Math.max(COURSE_NAME_MIN, COURSE_NAME_BASE - (len - 6) * 2);
+  return { fontSize: size, lineHeight: size + 4 };
+}
+
+// ───────────────────────── Screen ─────────────────────────
 export default function LibraryScreen() {
+  const { colors } = useAppTheme();
   const router = useRouter();
-  const { colors, isDark } = useAppTheme();
-  const [filter, setFilter] = useState<FilterKey>('all');
-  const [modalOpen, setModalOpen] = useState(false);
+  // Params let the Create flow drop the user here with a specific course
+  // selected after saving a template (or deep-link the templates sheet open).
+  // Consume once then clear.
+  const params = useLocalSearchParams<{ tab?: string; course?: string }>();
 
-  const { data: rows, loading, refresh } = useClasses();
+  const { data: classes, loading, refresh } = useClasses();
+  const classList = classes ?? [];
 
-  const filtered = useMemo(() => {
-    const base: ClassWithCounts[] = [...(rows ?? [])];
-    if (filter === 'recent') {
-      base.sort((a, b) => {
-        const at = a.last_active_at ? new Date(a.last_active_at).getTime() : 0;
-        const bt = b.last_active_at ? new Date(b.last_active_at).getTime() : 0;
-        return bt - at;
-      });
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [newCourseOpen, setNewCourseOpen] = useState(false);
+  const [newClipOpen, setNewClipOpen] = useState(false);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
+
+  // Apply inbound params once classes are loaded.
+  useEffect(() => {
+    const tabParam = params.tab as string | undefined;
+    const courseParam = params.course as string | undefined;
+    if (!tabParam && !courseParam) return;
+    if (classList.length === 0) return;
+    if (tabParam === 'templates') setTemplatesOpen(true);
+    if (courseParam && classList.find((c) => c.id === courseParam)) {
+      setActiveId(courseParam);
     }
-    return base;
-  }, [filter, rows]);
+    router.replace('/(tabs)/library' as any);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.tab, params.course, classList.length]);
 
-  const openClass = useCallback(
-    (id: string) => {
-      if (Platform.OS !== 'web') {
-        Haptics.selectionAsync().catch(() => {});
-      }
-      router.push(`/library/class/${id}` as any);
-    },
-    [router],
+  // Default active course to the first (most recent) once classes load.
+  useEffect(() => {
+    if (!activeId && classList.length > 0) {
+      setActiveId(classList[0].id);
+    } else if (activeId && !classList.find((c) => c.id === activeId)) {
+      setActiveId(classList[0]?.id ?? null);
+    }
+  }, [activeId, classList]);
+
+  const activeClass = useMemo(
+    () => classList.find((c) => c.id === activeId) ?? null,
+    [classList, activeId],
   );
 
-  const onCreate = useCallback(() => {
+  const onCreateCourse = useCallback(() => {
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     }
-    setModalOpen(true);
+    setNewCourseOpen(true);
   }, []);
 
-  const totalClipCount = (rows ?? []).reduce((a, c) => a + c.clip_count, 0);
+  const onCourseCreated = useCallback(
+    (id: string) => {
+      setNewCourseOpen(false);
+      setActiveId(id);
+      refresh();
+    },
+    [refresh],
+  );
 
-  const handleCreated = useCallback(() => {
-    setModalOpen(false);
-    refresh();
-  }, [refresh]);
-
-  // Empty state — no classes yet
-  if (!loading && (rows?.length ?? 0) === 0) {
+  // Empty state — no courses yet.
+  if (!loading && classList.length === 0) {
     return (
       <Screen>
         <View
@@ -109,7 +149,13 @@ export default function LibraryScreen() {
             paddingHorizontal: spacing['2xl'],
           }}
         >
-          <Noctis variant="perched" size={140} color={colors.text as string} eyeColor={palette.sage} animated />
+          <Noctis
+            variant="perched"
+            size={140}
+            color={colors.text as string}
+            eyeColor={palette.sage}
+            animated
+          />
           <Title
             align="center"
             family="serif"
@@ -125,22 +171,22 @@ export default function LibraryScreen() {
             muted
             style={{ marginTop: 8, maxWidth: 280 }}
           >
-            A class is a room. Name yours.
+            A course is a room. Name yours.
           </BodySm>
           <View style={{ marginTop: spacing['2xl'] }}>
             <Button
               variant="shimmer"
               size="lg"
-              title="Start a class"
+              title="Start a course"
               leading={<Feather name="plus" size={16} color={palette.ink} />}
-              onPress={onCreate}
+              onPress={onCreateCourse}
             />
           </View>
         </View>
-        <NewClassModal
-          open={modalOpen}
-          onClose={() => setModalOpen(false)}
-          onCreated={handleCreated}
+        <NewCourseModal
+          open={newCourseOpen}
+          onClose={() => setNewCourseOpen(false)}
+          onCreated={onCourseCreated}
         />
       </Screen>
     );
@@ -148,125 +194,962 @@ export default function LibraryScreen() {
 
   return (
     <Screen>
-      <ScrollView
-        contentContainerStyle={{
-          paddingHorizontal: H_PAD,
-          paddingBottom: spacing['7xl'],
-          paddingTop: spacing.md,
+      {/* Header bar: course picker + Templates chip */}
+      <CourseHeaderBar
+        activeClass={activeClass}
+        onOpenPicker={() => setPickerOpen(true)}
+        onOpenTemplates={() => setTemplatesOpen(true)}
+      />
+
+      {/* Clips — the only content in the shelf now. Templates live in a
+          universal sheet opened from the header chip. */}
+      <ClipsTab
+        activeClass={activeClass}
+        onCreateClip={() => setNewClipOpen(true)}
+      />
+
+      {/* Course picker modal */}
+      <CoursePickerModal
+        open={pickerOpen}
+        classes={classList}
+        activeId={activeId}
+        onPick={(id) => {
+          setActiveId(id);
+          setPickerOpen(false);
         }}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Header */}
-        <Animated.View entering={ENTER.fade(40)} style={{ marginBottom: spacing['2xl'] }}>
-          <Display2>Your shelf.</Display2>
-        </Animated.View>
+        onNewCourse={() => {
+          setPickerOpen(false);
+          onCreateCourse();
+        }}
+        onDeleted={(id) => {
+          if (activeId === id) {
+            const next = classList.find((c) => c.id !== id);
+            setActiveId(next?.id ?? null);
+          }
+          refresh();
+        }}
+        onClose={() => setPickerOpen(false)}
+      />
 
-        {/* Filter chips */}
-        <Animated.View
-          entering={ENTER.fade(120)}
-          style={{
-            flexDirection: 'row',
-            gap: spacing.sm,
-            marginBottom: spacing.xl,
-          }}
-        >
-          {FILTERS.map((f) => (
-            <Chip
-              key={f.key}
-              label={f.label}
-              variant="outline"
-              selected={filter === f.key}
-              onPress={() => setFilter(f.key)}
-            />
-          ))}
-          <View style={{ flex: 1 }} />
-          <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
-            <MonoSm muted>{totalClipCount} clips total</MonoSm>
-          </View>
-        </Animated.View>
+      {/* New course modal */}
+      <NewCourseModal
+        open={newCourseOpen}
+        onClose={() => setNewCourseOpen(false)}
+        onCreated={onCourseCreated}
+      />
 
-        {/* Grid */}
-        <View
-          style={{
-            flexDirection: 'row',
-            flexWrap: 'wrap',
-            gap: GAP,
-          }}
-        >
-          {filtered.map((cls, i) => (
-            <ClassCard
-              key={cls.id}
-              cls={cls}
-              index={i}
-              width={COL_W}
-              height={CARD_H}
-              onPress={() => openClass(cls.id)}
-              dark={isDark}
-            />
-          ))}
+      {/* New clip modal (universal template picker) */}
+      <NewClipModal
+        open={newClipOpen}
+        activeClass={activeClass}
+        onClose={() => setNewClipOpen(false)}
+      />
 
-          {/* Plus tile at grid end */}
-          <Animated.View entering={ENTER.fadeUp(stagger(filtered.length, 80, 200))}>
-            <Pressable
-              onPress={onCreate}
-              style={({ pressed }) => ({
-                width: COL_W,
-                height: CARD_H,
-                borderRadius: radii['2xl'],
-                borderWidth: 1.5,
-                borderStyle: 'dashed',
-                borderColor: colors.border as string,
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 10,
-                opacity: pressed ? 0.72 : 1,
-                backgroundColor: isDark ? 'rgba(139,186,177,0.04)' : 'rgba(68,112,111,0.04)',
-              })}
-            >
-              <View
-                style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 22,
-                  backgroundColor: colors.card as string,
-                  borderWidth: 1,
-                  borderColor: colors.border as string,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Feather name="plus" size={20} color={colors.text as string} />
-              </View>
-              <Title style={{ textAlign: 'center' }}>New class</Title>
-              <MonoSm muted>start a shelf</MonoSm>
-            </Pressable>
-          </Animated.View>
-        </View>
-      </ScrollView>
-      <NewClassModal
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        onCreated={handleCreated}
+      {/* Universal templates sheet */}
+      <TemplatesSheet
+        open={templatesOpen}
+        onClose={() => setTemplatesOpen(false)}
       />
     </Screen>
   );
 }
 
-// -------------------- New Class Modal --------------------
+// ───────────────────────── Header bar ─────────────────────────
+function CourseHeaderBar({
+  activeClass,
+  onOpenPicker,
+  onOpenTemplates,
+}: {
+  activeClass: ClassWithCounts | null;
+  onOpenPicker: () => void;
+  onOpenTemplates: () => void;
+}) {
+  const { colors } = useAppTheme();
+  return (
+    <View
+      style={{
+        paddingHorizontal: H_PAD,
+        paddingTop: spacing.lg,
+        paddingBottom: spacing.md,
+      }}
+    >
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: spacing.md,
+        }}
+      >
+        <Pressable
+          onPress={onOpenPicker}
+          style={({ pressed }) => ({
+            flex: 1,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: spacing.sm,
+            opacity: pressed ? 0.7 : 1,
+          })}
+          accessibilityRole="button"
+          accessibilityLabel="Change course"
+        >
+          <View
+            style={{
+              width: 14,
+              height: 14,
+              borderRadius: 3,
+              backgroundColor:
+                activeClass?.color_hex ?? (palette.teal as string),
+            }}
+          />
+          <Display2
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.55}
+            style={[{ flexShrink: 1 }, courseNameSizeStyle(activeClass?.name)]}
+          >
+            {activeClass?.name ?? 'Pick a course'}
+          </Display2>
+          <Feather
+            name="chevron-down"
+            size={18}
+            color={colors.mutedText as string}
+          />
+        </Pressable>
 
-function NewClassModal({
+        <TemplatesChip onPress={onOpenTemplates} />
+      </View>
+
+      {activeClass ? (
+        <MonoSm muted style={{ marginTop: 4 }}>
+          {activeClass.topic_count} topics · {activeClass.clip_count} clips
+        </MonoSm>
+      ) : null}
+    </View>
+  );
+}
+
+function TemplatesChip({ onPress }: { onPress: () => void }) {
+  const { colors } = useAppTheme();
+  const scale = useSharedValue(1);
+  const style = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+  return (
+    <Animated.View style={style}>
+      <Pressable
+        onPress={() => {
+          if (Platform.OS !== 'web') {
+            Haptics.selectionAsync().catch(() => {});
+          }
+          onPress();
+        }}
+        onPressIn={() => {
+          scale.value = withTiming(0.94, { duration: 120 });
+        }}
+        onPressOut={() => {
+          scale.value = withTiming(1, { duration: 180 });
+        }}
+        accessibilityRole="button"
+        accessibilityLabel="Open templates"
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 6,
+          paddingVertical: 8,
+          paddingHorizontal: 12,
+          borderRadius: radii.pill,
+          borderWidth: 1,
+          borderColor: (colors.primary as string) + '66',
+          backgroundColor: (colors.primary as string) + '14',
+        }}
+      >
+        <Feather
+          name="layers"
+          size={14}
+          color={colors.primary as string}
+        />
+        <Text
+          variant="bodySm"
+          weight="bold"
+          color={colors.primary as string}
+        >
+          Templates
+        </Text>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+
+// ───────────────────────── Clips tab ─────────────────────────
+function ClipsTab({
+  activeClass,
+  onCreateClip,
+}: {
+  activeClass: ClassWithCounts | null;
+  onCreateClip: () => void;
+}) {
+  const { colors } = useAppTheme();
+  const router = useRouter();
+  const { data: clips, loading } = useClipsForClass(activeClass?.id);
+  const list = clips ?? [];
+
+  return (
+    <ScrollView
+      contentContainerStyle={{
+        paddingHorizontal: H_PAD,
+        paddingTop: spacing.lg,
+        paddingBottom: spacing['7xl'],
+      }}
+      showsVerticalScrollIndicator={false}
+    >
+      {/* Create clip CTA */}
+      <View style={{ marginBottom: spacing.lg }}>
+        <Button
+          variant="shimmer"
+          size="md"
+          title="New clip from template"
+          leading={<Feather name="plus" size={14} color={palette.ink} />}
+          onPress={onCreateClip}
+          fullWidth
+        />
+      </View>
+
+      {loading ? (
+        <MonoSm muted>Loading clips…</MonoSm>
+      ) : list.length === 0 ? (
+        <EmptyPanel
+          icon="film"
+          title="No clips yet."
+          body="Pick a template and spin up your first clip. Generation is wired up soon."
+        />
+      ) : (
+        <View
+          style={{
+            flexDirection: 'row',
+            flexWrap: 'wrap',
+            gap: GRID_GAP,
+          }}
+        >
+          {list.map((clip, i) => (
+            <ClipCard
+              key={clip.id}
+              clip={clip}
+              index={i}
+              classColor={activeClass?.color_hex ?? palette.teal}
+              onPress={() => router.push(`/player/${clip.id}` as any)}
+            />
+          ))}
+        </View>
+      )}
+    </ScrollView>
+  );
+}
+
+function ClipCard({
+  clip,
+  index,
+  classColor,
+  onPress,
+}: {
+  clip: Row<'clips'>;
+  index: number;
+  classColor: string;
+  onPress: () => void;
+}) {
+  const tint = clip.thumbnail_color ?? palette.tealDeep;
+  const durationLabel = (() => {
+    const sec = Math.max(0, Math.round(clip.duration_s ?? 0));
+    const m = Math.floor(sec / 60);
+    const r = sec % 60;
+    return `${m}:${r.toString().padStart(2, '0')}`;
+  })();
+  return (
+    <Animated.View
+      entering={ENTER.fadeUp(80 + index * 40)}
+      style={{ width: CLIP_COL_W, height: CLIP_CARD_H }}
+    >
+      <Pressable
+        onPress={onPress}
+        style={({ pressed }) => ({
+          width: '100%',
+          height: '100%',
+          opacity: pressed ? 0.85 : 1,
+        })}
+      >
+        <View
+          style={{
+            flex: 1,
+            borderRadius: radii.xl,
+            overflow: 'hidden',
+            borderWidth: 1,
+            borderColor: classColor + '55',
+          }}
+        >
+          <LinearGradient
+            colors={[tint, classColor + '33', palette.ink]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFillObject}
+          />
+          <View style={{ position: 'absolute', top: 20, left: 12, opacity: 0.22 }}>
+            <Shards size={110} phase="assembled" color={classColor} />
+          </View>
+          <LinearGradient
+            colors={['transparent', 'rgba(4,20,30,0.9)']}
+            locations={[0.4, 1]}
+            style={StyleSheet.absoluteFillObject}
+            pointerEvents="none"
+          />
+          <View style={{ position: 'absolute', left: 10, right: 10, bottom: 10 }}>
+            <TitleSm color={palette.mist} numberOfLines={2}>
+              {clip.title}
+            </TitleSm>
+            <View
+              style={{
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                marginTop: 4,
+              }}
+            >
+              <MonoSm color={palette.fog} style={{ opacity: 0.75 }}>
+                {clip.source_creator ?? '@source'}
+              </MonoSm>
+              <MonoSm color={palette.fog} style={{ opacity: 0.55 }}>
+                {durationLabel}
+              </MonoSm>
+            </View>
+          </View>
+        </View>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+// ───────────────────────── Templates sheet (universal) ─────────────────────────
+// Drag-to-close bottom sheet listing every template across every course. Opened
+// from the header chip — templates aren't scoped to the active course. Tap the
+// scrim or drag the handle down to dismiss.
+function TemplatesSheet({
+  open,
+  onClose,
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
+  const { colors } = useAppTheme();
+  const { data: templates, loading } = useTemplatesForUser();
+  const list = templates ?? [];
+
+  const stickyHeader = (
+    <View
+      style={{
+        paddingHorizontal: H_PAD,
+        paddingTop: spacing.sm,
+        paddingBottom: spacing.md,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border as string,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+      }}
+    >
+      <Feather name="layers" size={18} color={colors.primary as string} />
+      <Title>Templates</Title>
+    </View>
+  );
+
+  return (
+    <DraggableBottomSheet
+      visible={open}
+      onClose={onClose}
+      heightRatio={0.5}
+      backgroundColor={colors.background as string}
+      accentColor={colors.primary as string}
+      backdropOpacity={0.6}
+      stickyHeader={stickyHeader}
+    >
+      <View
+        style={{
+          paddingHorizontal: H_PAD,
+          paddingTop: spacing.lg,
+          gap: spacing.md,
+        }}
+      >
+        {loading && list.length === 0 ? (
+          <MonoSm muted>Loading templates…</MonoSm>
+        ) : list.length === 0 ? (
+          <EmptyPanel
+            icon="layers"
+            title="No templates yet."
+            body="Deconstruct a reel in Create to save its SFX, cuts, and styling as a reusable template."
+          />
+        ) : (
+          list.map((tpl, i) => (
+            <TemplateRow
+              key={tpl.id}
+              template={tpl}
+              index={i}
+              classColor={palette.teal}
+            />
+          ))
+        )}
+      </View>
+    </DraggableBottomSheet>
+  );
+}
+
+// ───── Template row (summary card) ─────
+// Only the trash button is interactive; the card itself is a passive display.
+function TemplateRow({
+  template,
+  index,
+  classColor,
+}: {
+  template: Row<'templates'>;
+  index: number;
+  classColor: string;
+}) {
+  const { colors } = useAppTheme();
+  const summary = summarizeTemplate(template);
+  const created = formatRelative(template.created_at);
+
+  const onDeletePress = () => {
+    Alert.alert(
+      'Delete template?',
+      `"${template.name}" will be removed from every course. This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteTemplate(template.id);
+              if (Platform.OS !== 'web') {
+                Haptics.notificationAsync(
+                  Haptics.NotificationFeedbackType.Success,
+                ).catch(() => {});
+              }
+            } catch (e) {
+              Alert.alert(
+                'Delete failed',
+                e instanceof Error ? e.message : String(e),
+              );
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  return (
+    <Animated.View entering={ENTER.fadeUp(80 + index * 40)}>
+      <View
+        style={{
+          padding: spacing.lg,
+          borderRadius: radii.xl,
+          borderWidth: 1,
+          borderColor: colors.border as string,
+          backgroundColor: colors.card as string,
+          flexDirection: 'row',
+          alignItems: 'stretch',
+          gap: spacing.md,
+        }}
+      >
+        <View style={{ flex: 1, gap: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+            <View
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: 2,
+                backgroundColor: classColor,
+              }}
+            />
+            <Title numberOfLines={1} style={{ flexShrink: 1 }}>
+              {template.name}
+            </Title>
+          </View>
+          {template.description ? (
+            <BodySm muted numberOfLines={2}>
+              {template.description}
+            </BodySm>
+          ) : null}
+          <MonoSm muted numberOfLines={1} style={{ marginTop: 4 }}>
+            {summary}
+          </MonoSm>
+        </View>
+        <View
+          style={{
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: spacing.sm,
+          }}
+        >
+          <Pressable
+            onPress={onDeletePress}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={`Delete template ${template.name}`}
+            style={({ pressed }) => ({
+              padding: 10,
+              borderRadius: radii.md,
+              backgroundColor:
+                (palette.alert as string) + (pressed ? '33' : '1a'),
+            })}
+          >
+            <Feather
+              name="trash-2"
+              size={18}
+              color={palette.alert as string}
+            />
+          </Pressable>
+          <MonoSm muted>{created}</MonoSm>
+        </View>
+      </View>
+    </Animated.View>
+  );
+}
+
+// ───── Template detail sheet (edit name/description, delete) ─────
+function TemplateDetailSheet({
+  template,
+  onClose,
+}: {
+  template: Row<'templates'> | null;
+  onClose: () => void;
+}) {
+  const { colors } = useAppTheme();
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [busy, setBusy] = useState<'save' | 'delete' | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!template) return;
+    setName(template.name);
+    setDescription(template.description ?? '');
+    setErr(null);
+    setBusy(null);
+  }, [template]);
+
+  const onSave = async () => {
+    if (!template) return;
+    const trimmed = name.trim();
+    if (trimmed.length < 2) return;
+    setBusy('save');
+    setErr(null);
+    try {
+      await updateTemplate(template.id, {
+        name: trimmed,
+        description: description.trim() || null,
+      });
+      onClose();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+      setBusy(null);
+    }
+  };
+
+  const onDelete = async () => {
+    if (!template) return;
+    setBusy('delete');
+    setErr(null);
+    try {
+      await deleteTemplate(template.id);
+      onClose();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+      setBusy(null);
+    }
+  };
+
+  return (
+    <Modal
+      visible={!!template}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <Pressable
+        onPress={onClose}
+        style={{
+          flex: 1,
+          backgroundColor: 'rgba(4,20,30,0.72)',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: spacing.xl,
+        }}
+      >
+        <Pressable
+          onPress={() => {}}
+          style={{
+            width: '100%',
+            maxWidth: 460,
+            padding: spacing.xl,
+            borderRadius: radii['2xl'],
+            backgroundColor: colors.card as string,
+            borderWidth: 1,
+            borderColor: colors.border as string,
+            gap: spacing.md,
+          }}
+        >
+          <View
+            style={{
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+            }}
+          >
+            <Overline muted>TEMPLATE</Overline>
+            <IconButton
+              variant="ghost"
+              size={32}
+              onPress={onClose}
+              accessibilityLabel="Close"
+            >
+              <Feather name="x" size={14} color={colors.text as string} />
+            </IconButton>
+          </View>
+          <View style={{ gap: 6 }}>
+            <Overline muted>NAME</Overline>
+            <TextField
+              variant="boxed"
+              placeholder="Template name"
+              value={name}
+              onChangeText={setName}
+            />
+          </View>
+          <View style={{ gap: 6 }}>
+            <Overline muted>DESCRIPTION</Overline>
+            <TextField
+              variant="boxed"
+              placeholder="Optional"
+              value={description}
+              onChangeText={setDescription}
+              multiline
+            />
+          </View>
+          {template ? (
+            <MonoSm muted>{summarizeTemplate(template)}</MonoSm>
+          ) : null}
+          {err ? <MonoSm color={palette.alert}>{err}</MonoSm> : null}
+          <View
+            style={{
+              flexDirection: 'row',
+              gap: spacing.sm,
+              marginTop: spacing.sm,
+              justifyContent: 'space-between',
+            }}
+          >
+            <Button
+              variant="tertiary"
+              size="md"
+              title={busy === 'delete' ? 'Deleting…' : 'Delete'}
+              onPress={onDelete}
+              disabled={busy !== null}
+              leading={
+                <Feather name="trash-2" size={14} color={palette.alert} />
+              }
+            />
+            <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+              <Button
+                variant="tertiary"
+                size="md"
+                title="Cancel"
+                onPress={onClose}
+                disabled={busy !== null}
+              />
+              <Button
+                variant="shimmer"
+                size="md"
+                title={busy === 'save' ? 'Saving…' : 'Save'}
+                onPress={onSave}
+                disabled={busy !== null || name.trim().length < 2}
+              />
+            </View>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+// ───────────────────────── Empty panel ─────────────────────────
+function EmptyPanel({
+  icon,
+  title,
+  body,
+}: {
+  icon: keyof typeof Feather.glyphMap;
+  title: string;
+  body: string;
+}) {
+  const { colors } = useAppTheme();
+  return (
+    <View
+      style={{
+        alignItems: 'flex-start',
+        padding: spacing['2xl'],
+        borderRadius: radii.xl,
+        borderWidth: 1,
+        borderColor: colors.border as string,
+        backgroundColor: colors.card as string,
+        gap: spacing.md,
+      }}
+    >
+      <View
+        style={{
+          width: 44,
+          height: 44,
+          borderRadius: 22,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: colors.elevated as string,
+          borderWidth: 1,
+          borderColor: colors.border as string,
+        }}
+      >
+        <Feather name={icon} size={18} color={colors.primary as string} />
+      </View>
+      <Title>{title}</Title>
+      <BodySm muted>{body}</BodySm>
+    </View>
+  );
+}
+
+// ───────────────────────── Course picker modal ─────────────────────────
+function CoursePickerModal({
+  open,
+  classes,
+  activeId,
+  onPick,
+  onNewCourse,
+  onDeleted,
+  onClose,
+}: {
+  open: boolean;
+  classes: ClassWithCounts[];
+  activeId: string | null;
+  onPick: (id: string) => void;
+  onNewCourse: () => void;
+  onDeleted: (id: string) => void;
+  onClose: () => void;
+}) {
+  const { colors } = useAppTheme();
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const confirmDelete = (c: ClassWithCounts) => {
+    // Web doesn't support Alert.alert buttons cleanly — fall back to window.confirm.
+    const runDelete = async () => {
+      setDeletingId(c.id);
+      try {
+        await deleteClass(c.id);
+        onDeleted(c.id);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (Platform.OS === 'web') {
+          // eslint-disable-next-line no-alert
+          window.alert(`Couldn't delete course: ${msg}`);
+        } else {
+          Alert.alert("Couldn't delete course", msg);
+        }
+      } finally {
+        setDeletingId(null);
+      }
+    };
+
+    const body = `This removes "${c.name}" and its ${c.topic_count} topic${c.topic_count === 1 ? '' : 's'} and ${c.clip_count} clip${c.clip_count === 1 ? '' : 's'}. Can't undo.`;
+    if (Platform.OS === 'web') {
+      // eslint-disable-next-line no-alert
+      if (window.confirm(`Delete "${c.name}"?\n\n${body}`)) runDelete();
+      return;
+    }
+    Alert.alert(`Delete "${c.name}"?`, body, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: runDelete },
+    ]);
+  };
+
+  return (
+    <Modal
+      visible={open}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <Pressable
+        onPress={onClose}
+        style={{
+          flex: 1,
+          backgroundColor: 'rgba(4,20,30,0.72)',
+          alignItems: 'stretch',
+          justifyContent: 'flex-start',
+          paddingTop: spacing['5xl'],
+          paddingHorizontal: spacing.lg,
+        }}
+      >
+        <Pressable
+          onPress={() => {}}
+          style={{
+            borderRadius: radii['2xl'],
+            backgroundColor: colors.card as string,
+            borderWidth: 1,
+            borderColor: colors.border as string,
+            overflow: 'hidden',
+          }}
+        >
+          <View
+            style={{
+              paddingHorizontal: spacing.lg,
+              paddingVertical: spacing.md,
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              borderBottomWidth: 1,
+              borderBottomColor: colors.border as string,
+            }}
+          >
+            <Overline muted>COURSES</Overline>
+            <IconButton
+              variant="ghost"
+              size={32}
+              onPress={onClose}
+              accessibilityLabel="Close"
+            >
+              <Feather name="x" size={14} color={colors.text as string} />
+            </IconButton>
+          </View>
+          <ScrollView style={{ maxHeight: 360 }}>
+            {classes.map((c) => {
+              const active = c.id === activeId;
+              const deleting = deletingId === c.id;
+              return (
+                <View
+                  key={c.id}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    paddingRight: spacing.sm,
+                    opacity: deleting ? 0.5 : 1,
+                  }}
+                >
+                  <Pressable
+                    onPress={() => onPick(c.id)}
+                    disabled={deleting}
+                    style={({ pressed }) => ({
+                      flex: 1,
+                      paddingHorizontal: spacing.lg,
+                      paddingVertical: spacing.md,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: spacing.md,
+                      backgroundColor: pressed
+                        ? (colors.elevated as string)
+                        : 'transparent',
+                    })}
+                  >
+                    <View
+                      style={{
+                        width: 12,
+                        height: 12,
+                        borderRadius: 3,
+                        backgroundColor: c.color_hex,
+                      }}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text variant="body" weight="medium">
+                        {c.name}
+                      </Text>
+                      <MonoSm muted>{c.clip_count} clips</MonoSm>
+                    </View>
+                    {active ? (
+                      <Feather
+                        name="check"
+                        size={14}
+                        color={colors.primary as string}
+                      />
+                    ) : null}
+                  </Pressable>
+                  <IconButton
+                    variant="ghost"
+                    size={32}
+                    onPress={() => confirmDelete(c)}
+                    disabled={deleting}
+                    accessibilityLabel={`Delete ${c.name}`}
+                  >
+                    <Feather
+                      name="trash-2"
+                      size={14}
+                      color={palette.alert}
+                    />
+                  </IconButton>
+                </View>
+              );
+            })}
+          </ScrollView>
+          <View
+            style={{
+              borderTopWidth: 1,
+              borderTopColor: colors.border as string,
+            }}
+          >
+            <Pressable
+              onPress={onNewCourse}
+              style={({ pressed }) => ({
+                paddingHorizontal: spacing.lg,
+                paddingVertical: spacing.md,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: spacing.sm,
+                backgroundColor: pressed
+                  ? (colors.elevated as string)
+                  : 'transparent',
+              })}
+            >
+              <Feather
+                name="plus"
+                size={14}
+                color={colors.primary as string}
+              />
+              <Text
+                variant="body"
+                weight="semibold"
+                color={colors.primary as string}
+              >
+                New course
+              </Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+// ───────────────────────── New course modal ─────────────────────────
+function NewCourseModal({
   open,
   onClose,
   onCreated,
 }: {
   open: boolean;
   onClose: () => void;
-  onCreated: () => void;
+  onCreated: (id: string) => void;
 }) {
   const { colors } = useAppTheme();
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setName('');
+      setErr(null);
+      setBusy(false);
+    }
+  }, [open]);
 
   const submit = useCallback(async () => {
     const clean = name.trim();
@@ -274,12 +1157,10 @@ function NewClassModal({
     setBusy(true);
     setErr(null);
     try {
-      await createClass({ name: clean });
-      setName('');
-      onCreated();
+      const created = await createClass({ name: clean });
+      onCreated(created.id);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
-    } finally {
       setBusy(false);
     }
   }, [name, onCreated]);
@@ -308,7 +1189,7 @@ function NewClassModal({
             gap: spacing.md,
           }}
         >
-          <Overline muted>New class</Overline>
+          <Overline muted>New course</Overline>
           <Title family="serif" italic>
             Name the shelf.
           </Title>
@@ -348,296 +1229,189 @@ function NewClassModal({
   );
 }
 
-// -------------------- ClassCard --------------------
+// ───────────────────────── New clip modal ─────────────────────────
+function NewClipModal({
+  open,
+  activeClass,
+  onClose,
+}: {
+  open: boolean;
+  activeClass: ClassWithCounts | null;
+  onClose: () => void;
+}) {
+  const { colors } = useAppTheme();
+  const router = useRouter();
+  // Templates are universal — any template can seed a clip in any course.
+  const { data: templates, loading } = useTemplatesForUser();
+  const list = templates ?? [];
 
-interface ClassCardProps {
-  cls: ClassWithCounts;
-  index: number;
-  width: number;
-  height: number;
-  onPress: () => void;
-  dark: boolean;
-}
+  const [pickedId, setPickedId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
-function ClassCard({ cls, index, width, height, onPress, dark }: ClassCardProps) {
-  const rotX = useSharedValue(0);
-  const rotY = useSharedValue(0);
-  const scale = useSharedValue(1);
-  const pressShadow = useSharedValue(0);
+  // Reset picker when modal re-opens or the active class changes.
+  useEffect(() => {
+    if (!open) return;
+    setPickedId(null);
+    setBusy(false);
+    setErr(null);
+  }, [open, activeClass?.id]);
 
-  const onIn = useCallback(
-    (e: { nativeEvent: { locationX: number; locationY: number } }) => {
-      const { locationX, locationY } = e.nativeEvent;
-      // Normalize -1..1
-      const nx = (locationX / width) * 2 - 1;
-      const ny = (locationY / height) * 2 - 1;
-      rotY.value = withTiming(nx * 4, { duration: 160, easing: Easing.bezier(...motion.ease.entrance) });
-      rotX.value = withTiming(-ny * 3, { duration: 160, easing: Easing.bezier(...motion.ease.entrance) });
-      scale.value = withSpring(0.97, { mass: 0.5, stiffness: 180, damping: 16 });
-      pressShadow.value = withTiming(1, { duration: 200 });
-    },
-    [height, rotX, rotY, scale, pressShadow, width],
-  );
+  const picked = list.find((t) => t.id === pickedId) ?? null;
 
-  const onOut = useCallback(() => {
-    rotX.value = withTiming(0, { duration: 280, easing: Easing.bezier(...motion.ease.standard) });
-    rotY.value = withTiming(0, { duration: 280, easing: Easing.bezier(...motion.ease.standard) });
-    scale.value = withSpring(1, { mass: 0.5, stiffness: 160, damping: 14 });
-    pressShadow.value = withTiming(0, { duration: 260 });
-  }, [rotX, rotY, scale, pressShadow]);
-
-  const animStyle = useAnimatedStyle(() => ({
-    transform: [
-      { perspective: 800 },
-      { rotateX: `${rotX.value}deg` },
-      { rotateY: `${rotY.value}deg` },
-      { scale: scale.value },
-    ],
-  }));
-
-  const glowStyle = useAnimatedStyle(() => ({
-    opacity: 0.25 + pressShadow.value * 0.35,
-  }));
-
-  // Palette variations for the mosaic — derived from class color
-  const mosaic = [
-    cls.color_hex,
-    mix(cls.color_hex, '#000', 0.3),
-    mix(cls.color_hex, '#000', 0.1),
-    mix(cls.color_hex, '#fff', 0.08),
-  ];
-
-  // Overlay darkening for legibility
-  const overlayTop = dark ? 'rgba(4,20,30,0.0)' : 'rgba(245,248,247,0.0)';
-  const overlayBottom = dark ? 'rgba(4,20,30,0.82)' : 'rgba(4,20,30,0.72)';
+  const onGenerate = async () => {
+    if (!activeClass || !picked) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const { topicId } = await ensureTopicInClass(activeClass.id);
+      const clip = await generateClipFromTemplate({
+        templateId: picked.id,
+        topicId,
+        title: picked.name,
+      });
+      if (Platform.OS !== 'web') {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+      }
+      onClose();
+      // Real video generation is not wired up yet — we hand off to the
+      // player, which renders the 'generating' status gracefully so the
+      // user sees the clip they just queued.
+      router.push(`/player/${clip.id}` as any);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  };
 
   return (
-    <Animated.View
-      entering={ENTER.fadeUp(stagger(index, 80, 160))}
-      style={[{ width, height }, animStyle]}
-    >
+    <Modal visible={open} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable
-        onPressIn={onIn}
-        onPressOut={onOut}
-        onPress={onPress}
-        accessibilityRole="button"
-        accessibilityLabel={`Open ${cls.name} class`}
-        style={{ width: '100%', height: '100%' }}
+        onPress={onClose}
+        style={{
+          flex: 1,
+          backgroundColor: 'rgba(4,20,30,0.72)',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: spacing.xl,
+        }}
       >
-        {/* Soft shadow glow behind card */}
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            {
-              position: 'absolute',
-              left: -6,
-              right: -6,
-              top: 4,
-              bottom: -8,
-              borderRadius: radii['3xl'],
-              backgroundColor: cls.color_hex,
-            },
-            glowStyle,
-          ]}
-        />
-
-        <View
+        <Pressable
+          onPress={() => {}}
           style={{
-            flex: 1,
+            width: '100%',
+            maxWidth: 440,
+            padding: spacing.xl,
             borderRadius: radii['2xl'],
-            overflow: 'hidden',
-            backgroundColor: cls.color_hex + (dark ? '33' : '22'),
+            backgroundColor: colors.card as string,
             borderWidth: 1,
-            borderColor: cls.color_hex + '55',
+            borderColor: colors.border as string,
+            gap: spacing.md,
           }}
         >
-          {/* full-bleed class color wash */}
-          <LinearGradient
-            colors={[cls.color_hex + 'CC', cls.color_hex + '66', cls.color_hex + '22']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={StyleSheet.absoluteFillObject}
-          />
+          <Overline muted>NEW CLIP</Overline>
+          <Title>Pick a template.</Title>
+          <BodySm muted>
+            {activeClass
+              ? `Creating in ${activeClass.name}.`
+              : 'Pick a course first.'}{' '}
+            Templates come from videos you deconstruct in Create.
+          </BodySm>
 
-          {/* mosaic 2x2 */}
+          {loading && list.length === 0 ? (
+            <MonoSm muted>Loading templates…</MonoSm>
+          ) : list.length === 0 ? (
+            <View
+              style={{
+                padding: spacing.lg,
+                borderRadius: radii.lg,
+                borderWidth: 1,
+                borderStyle: 'dashed',
+                borderColor: colors.border as string,
+                alignItems: 'flex-start',
+                gap: 6,
+              }}
+            >
+              <MonoSm muted>NO TEMPLATES YET</MonoSm>
+              <BodySm muted>
+                Deconstruct a reel in Create to save its SFX, cuts, and styling
+                as a template.
+              </BodySm>
+            </View>
+          ) : (
+            <ScrollView
+              style={{ maxHeight: 300 }}
+              contentContainerStyle={{ gap: spacing.sm }}
+              showsVerticalScrollIndicator={false}
+            >
+              {list.map((t) => {
+                const active = t.id === pickedId;
+                return (
+                  <Pressable
+                    key={t.id}
+                    onPress={() => setPickedId(t.id)}
+                    style={({ pressed }) => ({
+                      padding: spacing.md,
+                      borderRadius: radii.md,
+                      borderWidth: 1,
+                      borderColor: active
+                        ? (colors.primary as string)
+                        : (colors.border as string),
+                      backgroundColor: active
+                        ? (colors.primary as string) + '14'
+                        : 'transparent',
+                      opacity: pressed ? 0.7 : 1,
+                      gap: 4,
+                    })}
+                  >
+                    <Text
+                      variant="body"
+                      weight={active ? 'semibold' : 'medium'}
+                      numberOfLines={1}
+                    >
+                      {t.name}
+                    </Text>
+                    <MonoSm muted>{summarizeTemplate(t)}</MonoSm>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          )}
+
+          {err ? <MonoSm color={palette.alert}>{err}</MonoSm> : null}
+
+          {picked ? (
+            <MonoSm muted>
+              Generation isn't wired to video synthesis yet — the clip will sit
+              in 'generating' until the backend pipeline lands.
+            </MonoSm>
+          ) : null}
+
           <View
             style={{
-              marginTop: spacing.md,
-              marginHorizontal: spacing.md,
-              aspectRatio: 1,
-              borderRadius: radii.md,
-              overflow: 'hidden',
               flexDirection: 'row',
-              flexWrap: 'wrap',
-              borderWidth: 1,
-              borderColor: dark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)',
+              gap: spacing.sm,
+              marginTop: spacing.sm,
+              justifyContent: 'flex-end',
             }}
           >
-            {mosaic.slice(0, 4).map((c, idx) => (
-              <MosaicTile key={idx} color={c} accent={cls.color_hex} corner={idx} />
-            ))}
+            <Button
+              variant="tertiary"
+              size="md"
+              title="Close"
+              onPress={onClose}
+              disabled={busy}
+            />
+            <Button
+              variant="shimmer"
+              size="md"
+              title={busy ? 'Queuing…' : 'Generate'}
+              onPress={onGenerate}
+              disabled={!picked || busy}
+            />
           </View>
-
-          {/* bottom legibility gradient */}
-          <LinearGradient
-            colors={[overlayTop, overlayBottom]}
-            locations={[0.35, 1]}
-            style={StyleSheet.absoluteFillObject}
-            pointerEvents="none"
-          />
-
-          {/* bottom label */}
-          <View
-            style={{
-              position: 'absolute',
-              left: spacing.md,
-              right: spacing.md,
-              bottom: spacing.md,
-            }}
-          >
-            <Overline color={cls.color_hex} style={{ opacity: 0.9 }}>
-              {`${cls.clip_count} ${cls.clip_count === 1 ? 'clip' : 'clips'}`}
-            </Overline>
-            <Title color={palette.mist} style={{ marginTop: 4 }} numberOfLines={1}>
-              {cls.name}
-            </Title>
-            <MonoSm color={palette.fog} style={{ marginTop: 2, opacity: 0.85 }}>
-              {`${cls.topic_count} topics \u00b7 ${cls.clip_count} clips`}
-            </MonoSm>
-          </View>
-
-          {/* subtle texture: tiny mono index in top-right */}
-          <View
-            style={{
-              position: 'absolute',
-              top: spacing.sm,
-              right: spacing.md,
-              paddingHorizontal: 6,
-              paddingVertical: 2,
-              borderRadius: radii.xs,
-              backgroundColor: 'rgba(4,20,30,0.45)',
-              borderWidth: 1,
-              borderColor: 'rgba(255,255,255,0.12)',
-            }}
-          >
-            <MonoSm color={palette.fog}>
-              {String(index + 1).padStart(2, '0')}
-            </MonoSm>
-          </View>
-        </View>
+        </Pressable>
       </Pressable>
-    </Animated.View>
+    </Modal>
   );
-}
-
-function MosaicTile({ color, accent, corner }: { color: string; accent: string; corner: number }) {
-  // Different subtle internal composition per tile for tactile variety
-  const content = (() => {
-    if (corner === 0) {
-      return (
-        <LinearGradient
-          colors={[color, mix(color, '#000', 0.25)]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={StyleSheet.absoluteFillObject}
-        />
-      );
-    }
-    if (corner === 1) {
-      return (
-        <>
-          <View style={[StyleSheet.absoluteFillObject, { backgroundColor: color }]} />
-          <View
-            style={{
-              position: 'absolute',
-              left: '20%',
-              right: '20%',
-              top: '35%',
-              height: 1,
-              backgroundColor: accent,
-              opacity: 0.45,
-            }}
-          />
-          <View
-            style={{
-              position: 'absolute',
-              left: '35%',
-              right: '10%',
-              top: '55%',
-              height: 1,
-              backgroundColor: accent,
-              opacity: 0.3,
-            }}
-          />
-        </>
-      );
-    }
-    if (corner === 2) {
-      return (
-        <>
-          <View style={[StyleSheet.absoluteFillObject, { backgroundColor: color }]} />
-          <View
-            style={{
-              position: 'absolute',
-              left: '45%',
-              top: '45%',
-              width: 10,
-              height: 10,
-              borderRadius: 5,
-              backgroundColor: accent,
-              opacity: 0.7,
-            }}
-          />
-        </>
-      );
-    }
-    return (
-      <LinearGradient
-        colors={[mix(color, '#fff', 0.05), color]}
-        start={{ x: 1, y: 0 }}
-        end={{ x: 0, y: 1 }}
-        style={StyleSheet.absoluteFillObject}
-      />
-    );
-  })();
-
-  return (
-    <View
-      style={{
-        width: '50%',
-        height: '50%',
-        borderRightWidth: corner % 2 === 0 ? 0.5 : 0,
-        borderLeftWidth: corner % 2 === 1 ? 0.5 : 0,
-        borderBottomWidth: corner < 2 ? 0.5 : 0,
-        borderTopWidth: corner >= 2 ? 0.5 : 0,
-        borderColor: 'rgba(255,255,255,0.1)',
-        overflow: 'hidden',
-      }}
-    >
-      {content}
-    </View>
-  );
-}
-
-// Simple hex mixer (assumes #RRGGBB input)
-function mix(hex: string, with_: string, amount: number): string {
-  const a = parseHex(hex);
-  const b = parseHex(with_);
-  if (!a || !b) return hex;
-  const r = Math.round(a.r * (1 - amount) + b.r * amount);
-  const g = Math.round(a.g * (1 - amount) + b.g * amount);
-  const bl = Math.round(a.b * (1 - amount) + b.b * amount);
-  return `#${toHex(r)}${toHex(g)}${toHex(bl)}`;
-}
-function parseHex(hex: string): { r: number; g: number; b: number } | null {
-  const m = hex.replace('#', '');
-  if (m.length !== 6) return null;
-  return {
-    r: parseInt(m.slice(0, 2), 16),
-    g: parseInt(m.slice(2, 4), 16),
-    b: parseInt(m.slice(4, 6), 16),
-  };
-}
-function toHex(n: number) {
-  return Math.max(0, Math.min(255, n)).toString(16).padStart(2, '0');
 }
