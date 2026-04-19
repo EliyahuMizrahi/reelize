@@ -23,7 +23,8 @@ import { palette, spacing, radii } from '@/constants/tokens';
 import { ENTER, stagger } from '@/components/ui/motion';
 import { useAppTheme } from '@/contexts/ThemeContext';
 import { useClip, useFeed } from '@/data/hooks';
-import { updateClip } from '@/data/mutations';
+import { deleteClip, updateClip } from '@/data/mutations';
+import { getJobArtifact } from '@/services/api';
 import { DEFAULT_DNA, type DNAToken } from '@/components/brand/StyleDNA';
 import {
   creatorSummaryFromStyle,
@@ -31,7 +32,6 @@ import {
   transcriptFromStyle,
 } from '@/lib/format';
 import { supabase } from '@/lib/supabase';
-import { getJobArtifact } from '@/services/api';
 import type { Row } from '@/types/supabase';
 
 const STORAGE_BUCKET = process.env.EXPO_PUBLIC_SUPABASE_BUCKET ?? 'reelize-artifacts';
@@ -49,6 +49,8 @@ interface Clip {
   cutPoints: number[];
   tokens: DNAToken[];
   note: string;
+  generationJobId: string | null;
+  jobId: string | null;
   creator: {
     handle: string;
     avgCutsPerMin: number;
@@ -95,15 +97,92 @@ function clipFromRow(row: Row<'clips'>): Clip {
     cutPoints: cuts,
     tokens,
     note: row.note ?? '',
+    generationJobId: row.generation_job_id ?? null,
+    jobId: row.job_id ?? null,
     creator,
     transcript,
   };
 }
 
 // ───────────────────────── Top bar ─────────────────────────
-function TopBar({ clip }: { clip: Clip }) {
+function TopBar({ clip, videoUrl }: { clip: Clip; videoUrl: string | null }) {
   const router = useRouter();
   const { colors } = useAppTheme();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [busy, setBusy] = useState<null | 'download' | 'delete' | 'rename'>(null);
+
+  const closeMenu = () => setMenuOpen(false);
+
+  const onRename = async () => {
+    closeMenu();
+    const next = window.prompt('Rename clip', clip.topic);
+    if (next === null) return;
+    const trimmed = next.trim();
+    if (!trimmed || trimmed === clip.topic) return;
+    setBusy('rename');
+    try {
+      await updateClip(clip.id, { title: trimmed });
+    } catch (e) {
+      console.warn('[player-web] rename failed:', e);
+      window.alert('Rename failed. Please try again.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const onDownload = async () => {
+    closeMenu();
+    setBusy('download');
+    try {
+      let url = videoUrl;
+      if (!url) {
+        const jobId = clip.generationJobId ?? clip.jobId;
+        if (!jobId) {
+          window.alert('This clip has no rendered video yet.');
+          return;
+        }
+        const res = await getJobArtifact(jobId, 'video');
+        url = typeof res.url === 'string' ? res.url : null;
+      }
+      if (!url) {
+        window.alert('Rendered video is still processing.');
+        return;
+      }
+      // Trigger a download via an anchor. Cross-origin URLs ignore `download`
+      // and fall back to opening in a new tab — still lets the user save.
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${clip.topic || 'clip'}.mp4`;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (e) {
+      console.warn('[player-web] download failed:', e);
+      window.alert(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const onDelete = async () => {
+    closeMenu();
+    const ok = window.confirm(
+      `Delete "${clip.topic}"?\n\nThis removes the clip from your shelf. Cannot be undone.`,
+    );
+    if (!ok) return;
+    setBusy('delete');
+    try {
+      await deleteClip(clip.id);
+      router.replace('/(tabs)/library' as any);
+    } catch (e) {
+      console.warn('[player-web] delete failed:', e);
+      window.alert(e instanceof Error ? e.message : String(e));
+      setBusy(null);
+    }
+  };
+
   return (
     <View
       style={{
@@ -115,6 +194,7 @@ function TopBar({ clip }: { clip: Clip }) {
         borderBottomWidth: 1,
         borderBottomColor: colors.border as string,
         gap: spacing.lg,
+        zIndex: 10,
       }}
     >
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
@@ -126,15 +206,107 @@ function TopBar({ clip }: { clip: Clip }) {
         <Chip variant="class" classColor={clip.classColor} label={clip.className} size="sm" />
         <Title numberOfLines={1}>{clip.topic}</Title>
       </View>
-      <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-        <IconButton variant="filled" size={36} accessibilityLabel="Share">
-          <Feather name="share-2" size={14} color={colors.text as string} />
-        </IconButton>
-        <IconButton variant="filled" size={36} accessibilityLabel="More">
+      <View style={{ position: 'relative' }}>
+        <IconButton
+          variant="filled"
+          size={36}
+          accessibilityLabel="More"
+          onPress={() => setMenuOpen((o) => !o)}
+          disabled={busy !== null}
+        >
           <Feather name="more-horizontal" size={14} color={colors.text as string} />
         </IconButton>
+        {menuOpen && (
+          <>
+            {/* click-outside backdrop */}
+            <Pressable
+              onPress={closeMenu}
+              style={{
+                position: 'fixed' as any,
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                zIndex: 20,
+              }}
+            />
+            <View
+              style={{
+                position: 'absolute',
+                top: 44,
+                right: 0,
+                minWidth: 200,
+                backgroundColor: colors.elevated as string,
+                borderWidth: 1,
+                borderColor: colors.border as string,
+                borderRadius: radii.lg,
+                paddingVertical: spacing.xs,
+                zIndex: 30,
+                shadowColor: '#000',
+                shadowOpacity: 0.25,
+                shadowRadius: 20,
+                shadowOffset: { width: 0, height: 8 },
+              }}
+            >
+              <MenuItem icon="edit-3" label="Rename" onPress={onRename} />
+              <MenuItem
+                icon="download"
+                label={busy === 'download' ? 'Preparing…' : 'Download'}
+                onPress={onDownload}
+                disabled={busy === 'download'}
+              />
+              <MenuItem
+                icon="trash-2"
+                label={busy === 'delete' ? 'Deleting…' : 'Delete clip'}
+                onPress={onDelete}
+                destructive
+                disabled={busy === 'delete'}
+              />
+            </View>
+          </>
+        )}
       </View>
     </View>
+  );
+}
+
+function MenuItem({
+  icon,
+  label,
+  onPress,
+  destructive = false,
+  disabled = false,
+}: {
+  icon: keyof typeof Feather.glyphMap;
+  label: string;
+  onPress: () => void;
+  destructive?: boolean;
+  disabled?: boolean;
+}) {
+  const { colors } = useAppTheme();
+  const color = destructive ? palette.alert : (colors.text as string);
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      style={({ hovered, pressed }: any) => ({
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.md,
+        paddingVertical: spacing.sm,
+        paddingHorizontal: spacing.md,
+        backgroundColor: pressed
+          ? ((colors.border as string) + '80')
+          : hovered
+          ? ((colors.border as string) + '40')
+          : 'transparent',
+        opacity: disabled ? 0.5 : 1,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+      } as any)}
+    >
+      <Feather name={icon} size={14} color={color} />
+      <Body color={color}>{label}</Body>
+    </Pressable>
   );
 }
 
@@ -716,7 +888,7 @@ export default function PlayerWebScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background as string }}>
-      <TopBar clip={clip} />
+      <TopBar clip={clip} videoUrl={videoUrl} />
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ padding: spacing['2xl'], gap: spacing['2xl'] }}
