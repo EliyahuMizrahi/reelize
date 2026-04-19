@@ -71,8 +71,10 @@ export function Noctis({
   const beakTip = 'M 92 42 L 110 48 L 94 54 Z';
 
   if (variant === 'head') {
+    // Widened viewBox so the beak tip (x=110) stays inside the SVG bounds
+    // and a few pixels of margin keep the head off any container border.
     return (
-      <Svg width={size} height={size} viewBox="44 28 64 54">
+      <Svg width={size} height={size} viewBox="40 24 74 60">
         <Path d={bodyShard} fill={color} />
         <Path d={wingShard} fill={color} opacity={0.42} />
         <Path d={beakTip} fill={color} />

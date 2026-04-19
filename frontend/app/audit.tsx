@@ -73,7 +73,6 @@ function buildSections(sampleClassId: string, sampleTopicId: string, sampleClipI
       overline: 'V · Web',
       caption: 'Browser-first surfaces. Same brand, different body.',
       routes: [
-        { title: 'Marketing (long-scroll)', path: '/marketing' },
         { title: 'Feed · dashboard (web)', path: '/(tabs)/feed' },
         { title: 'Create · lab bench (web)', path: '/(tabs)/create' },
         { title: 'Library (web)', path: '/(tabs)/library' },

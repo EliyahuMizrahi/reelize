@@ -221,7 +221,7 @@ export default function SettingsScreen() {
         ) : null}
       </ScrollView>
 
-      {/* Sign out — pinned 30px above the tab bar (86px tall) */}
+      {/* Sign out — pinned 30px above the tab bar (86px tall on mobile; no tab bar on web) */}
       <Animated.View
         entering={ENTER.fadeUp(380)}
         pointerEvents="box-none"
@@ -229,7 +229,7 @@ export default function SettingsScreen() {
           position: 'absolute',
           left: 0,
           right: 0,
-          bottom: 86 + 30,
+          bottom: Platform.OS === 'web' ? 30 : 86 + 30,
           alignItems: 'center',
         }}
       >

@@ -89,6 +89,7 @@ export default function DashboardScreen() {
               alignItems: 'center',
               justifyContent: 'center',
               backgroundColor: isDark ? palette.inkTint : palette.mist,
+              overflow: 'hidden',
             }}
           >
             <Noctis

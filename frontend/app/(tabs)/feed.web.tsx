@@ -19,69 +19,12 @@ import { StyleDNA, DEFAULT_DNA, type DNAToken } from '@/components/brand/StyleDN
 import { palette, spacing, radii } from '@/constants/tokens';
 import { ENTER, stagger } from '@/components/ui/motion';
 import { useAppTheme } from '@/contexts/ThemeContext';
-import { useClasses, useFeed, useProfileStats } from '@/data/hooks';
+import { useAuth } from '@/contexts/AuthContext';
+import { useClasses, useFeed } from '@/data/hooks';
+import { useActiveShelf } from '@/components/navigation/WebAppChrome';
+import type { ClassWithCounts } from '@/data/queries';
 import type { Row } from '@/types/supabase';
 import { formatDuration, formatRelative } from '@/lib/format';
-
-// ───────────────────────── Stat tile ─────────────────────────
-interface StatProps {
-  label: string;
-  value: string;
-  delta?: string;
-  chart: 'spark' | 'bars' | 'ring';
-  accent: string;
-  index: number;
-}
-
-function StatTile({ label, value, delta, chart, accent, index }: StatProps) {
-  const { colors } = useAppTheme();
-  return (
-    <Animated.View entering={ENTER.fadeUp(stagger(index, 80, 40))} style={{ flex: 1, minWidth: 200 }}>
-      <Surface padded={spacing.xl} radius="xl" bordered style={{ gap: spacing.lg, minHeight: 140 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Overline muted>{label}</Overline>
-          <StatGlyph kind={chart} color={accent} />
-        </View>
-        <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm }}>
-          <Text variant="display2" family="mono" weight="medium" style={{ letterSpacing: -1 }}>
-            {value}
-          </Text>
-          {delta ? (
-            <View style={{ paddingBottom: 10 }}>
-              <MonoSm color={accent}>{delta}</MonoSm>
-            </View>
-          ) : null}
-        </View>
-      </Surface>
-    </Animated.View>
-  );
-}
-
-function StatGlyph({ kind, color }: { kind: 'spark' | 'bars' | 'ring'; color: string }) {
-  if (kind === 'bars') {
-    const heights = [10, 16, 12, 22, 18, 28, 20];
-    return (
-      <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 2, height: 30 }}>
-        {heights.map((h, i) => (
-          <View key={i} style={{ width: 3, height: h, borderRadius: 1.5, backgroundColor: color, opacity: 0.55 + (i / heights.length) * 0.45 }} />
-        ))}
-      </View>
-    );
-  }
-  if (kind === 'spark') {
-    const pts = [0.5, 0.62, 0.48, 0.72, 0.68, 0.84, 0.78, 0.94];
-    return (
-      <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 2, height: 30, width: 72 }}>
-        {pts.map((p, i) => (
-          <View key={i} style={{ width: 6, height: p * 28, borderRadius: 1.5, backgroundColor: color, opacity: 0.35 + p * 0.6 }} />
-        ))}
-      </View>
-    );
-  }
-  return (
-    <View style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 2, borderColor: color, opacity: 0.65 }} />
-  );
-}
 
 // ───────────────────────── Clip card ─────────────────────────
 function ClipCard({ id, index, tokens, title, className, classColor, tint, duration, creator }: {
@@ -146,6 +89,76 @@ function ClipCard({ id, index, tokens, title, className, classColor, tint, durat
   );
 }
 
+// ───────────────────────── Shelf card ─────────────────────────
+function ShelfCard({
+  shelf,
+  index,
+  onPress,
+}: {
+  shelf: ClassWithCounts;
+  index: number;
+  onPress: () => void;
+}) {
+  const { colors } = useAppTheme();
+  const accent = shelf.color_hex ?? palette.sage;
+  return (
+    <Animated.View entering={ENTER.fadeUp(stagger(index, 70, 40))} style={{ flex: 1, minWidth: 220 }}>
+      <Pressable
+        onPress={onPress}
+        style={({ pressed, hovered }: any) => ({
+          width: '100%',
+          minHeight: 132,
+          borderRadius: radii.xl,
+          overflow: 'hidden',
+          borderWidth: 1,
+          borderColor: hovered ? accent + '88' : (colors.border as string),
+          backgroundColor: colors.card as string,
+          padding: spacing.xl,
+          transform: [{ translateY: hovered ? -3 : 0 }],
+          opacity: pressed ? 0.9 : 1,
+          transitionProperty: 'transform, border-color' as any,
+          transitionDuration: '200ms' as any,
+          cursor: 'pointer' as any,
+        })}
+      >
+        <View
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 3,
+            backgroundColor: accent,
+            opacity: 0.7,
+          }}
+        />
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <View style={{ flex: 1, gap: 4 }}>
+            <Overline muted>Shelf</Overline>
+            <TitleSm numberOfLines={2}>{shelf.name}</TitleSm>
+          </View>
+          <View
+            style={{
+              width: 12,
+              height: 12,
+              borderRadius: 3,
+              backgroundColor: accent,
+              marginTop: 4,
+              marginLeft: spacing.md,
+            }}
+          />
+        </View>
+        <View style={{ flex: 1 }} />
+        <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.lg }}>
+          <MonoSm muted>{shelf.clip_count} lessons</MonoSm>
+          <MonoSm muted style={{ opacity: 0.6 }}>·</MonoSm>
+          <MonoSm muted>{shelf.topic_count} discs</MonoSm>
+        </View>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
 // ───────────────────────── Empty state ─────────────────────────
 function EmptyState({
   hasCourses,
@@ -165,11 +178,11 @@ function EmptyState({
       style={{ gap: spacing.lg, alignItems: 'flex-start' }}
     >
       <Overline muted>GET STARTED</Overline>
-      <Title>{hasCourses ? 'Make your first lesson.' : 'Start your first course.'}</Title>
+      <Title>{hasCourses ? 'Make your first lesson.' : 'Start your first shelf.'}</Title>
       <BodySm muted style={{ maxWidth: 520 }}>
         {hasCourses
           ? 'Pick a reel you love, we\u2019ll pull its Style DNA and turn it into a short lesson for you.'
-          : 'Courses hold topics and lessons. Create one from the library, then add lessons to it.'}
+          : 'Shelves hold discs and lessons. Create one from the library, then add lessons to it.'}
       </BodySm>
       <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.sm, flexWrap: 'wrap' }}>
         {!hasCourses ? (
@@ -183,11 +196,12 @@ function EmptyState({
               paddingHorizontal: 14,
               borderRadius: radii.sm,
               backgroundColor: pressed || hovered ? (colors.primary as string) : (colors.primary as string) + 'DD',
+              cursor: 'pointer' as any,
             })}
           >
             <Feather name="plus" size={14} color={colors.onPrimary as string} />
             <Text variant="bodySm" weight="semibold" color={colors.onPrimary as string}>
-              New course
+              New shelf
             </Text>
           </Pressable>
         ) : null}
@@ -203,6 +217,7 @@ function EmptyState({
             borderWidth: 1,
             borderColor: colors.border as string,
             backgroundColor: pressed || hovered ? (colors.elevated as string) : (colors.inputBackground as string),
+            cursor: 'pointer' as any,
           })}
         >
           <Feather
@@ -219,21 +234,80 @@ function EmptyState({
   );
 }
 
+// ───────────────────────── Section heading ─────────────────────────
+function SectionHeader({
+  overline,
+  title,
+  action,
+}: {
+  overline: string;
+  title: string;
+  action?: React.ReactNode;
+}) {
+  return (
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'flex-end',
+        justifyContent: 'space-between',
+        marginBottom: spacing.lg,
+        gap: spacing.md,
+      }}
+    >
+      <View style={{ flex: 1 }}>
+        <Overline muted>{overline}</Overline>
+        <Title style={{ marginTop: 4 }}>{title}</Title>
+      </View>
+      {action}
+    </View>
+  );
+}
+
+function ViewAllLink({ onPress, label = 'view all' }: { onPress: () => void; label?: string }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ hovered }: any) => ({
+        paddingVertical: 4,
+        opacity: hovered ? 1 : 0.75,
+        cursor: 'pointer' as any,
+        transitionProperty: 'opacity' as any,
+        transitionDuration: '140ms' as any,
+      })}
+    >
+      <Mono color={palette.teal}>{label} &rarr;</Mono>
+    </Pressable>
+  );
+}
+
 // ───────────────────────── Feed (web) ─────────────────────────
 export default function FeedWebScreen() {
   const router = useRouter();
   const { colors } = useAppTheme();
+  const { user, profile } = useAuth();
+  const { setActiveShelfId } = useActiveShelf();
 
-  const { data: feedRows } = useFeed(12);
+  const { data: feedRows } = useFeed(18);
   const { data: classes } = useClasses();
-  const { data: stats } = useProfileStats();
 
   const allClips = feedRows ?? [];
   const classList = classes ?? [];
   const hasLessons = allClips.length > 0;
   const hasCourses = classList.length > 0;
-  const recentClips = useMemo<Row<'clips'>[]>(() => allClips.slice(0, 6), [allClips]);
+  const recentClips = useMemo<Row<'clips'>[]>(() => allClips.slice(0, 8), [allClips]);
   const resumeClips = useMemo<Row<'clips'>[]>(() => allClips.slice(0, 4), [allClips]);
+  const topShelves = useMemo(() => classList.slice(0, 6), [classList]);
+
+  const firstName =
+    profile?.display_name?.split(' ')[0] ??
+    profile?.username ??
+    user?.email?.split('@')[0] ??
+    null;
+
+  const openShelf = (shelfId: string) => {
+    setActiveShelfId(shelfId);
+    router.push('/(tabs)/library' as any);
+  };
 
   return (
     <ScrollView
@@ -241,17 +315,18 @@ export default function FeedWebScreen() {
       contentContainerStyle={{ padding: spacing['2xl'], paddingBottom: spacing['5xl'] }}
     >
       <View style={{ gap: spacing['3xl'] }}>
-        {/* Stats band */}
-        <View>
-          <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: spacing.lg }}>
-            <Headline>Dashboard</Headline>
-          </View>
-          <View style={{ flexDirection: 'row', gap: spacing.lg, flexWrap: 'wrap' }}>
-            <StatTile index={0} label="Lessons generated" value={String(stats?.clipCount ?? 0)} chart="bars" accent={palette.sage} />
-            <StatTile index={1} label="Courses" value={String(stats?.classCount ?? 0)} chart="ring" accent={palette.tealBright} />
-            <StatTile index={2} label="Topics" value={String(stats?.topicCount ?? 0)} chart="spark" accent={palette.gold} />
-          </View>
-        </View>
+        {/* Greeting hero */}
+        <Animated.View entering={ENTER.fadeUp(20)} style={{ gap: 6 }}>
+          <Overline muted>Home</Overline>
+          <Headline>
+            {firstName ? `Welcome back, ${firstName}.` : 'Welcome back.'}
+          </Headline>
+          {hasLessons ? (
+            <BodySm italic family="serif" muted style={{ maxWidth: 560 }}>
+              {allClips.length} lesson{allClips.length === 1 ? '' : 's'} in your library — pick up where you left off or start something new.
+            </BodySm>
+          ) : null}
+        </Animated.View>
 
         {!hasLessons ? (
           <EmptyState
@@ -261,17 +336,68 @@ export default function FeedWebScreen() {
           />
         ) : (
           <>
-            {/* Recent lessons rail */}
+            {/* Continue — promoted to top since it's the most actionable row */}
             <View>
-              <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: spacing.lg }}>
-                <View>
-                  <Overline muted>Recent lessons</Overline>
-                  <Title style={{ marginTop: 4 }}>Fresh from the lab.</Title>
-                </View>
-                <Pressable onPress={() => router.push('/(tabs)/library' as any)}>
-                  <Mono color={palette.teal}>view all &rarr;</Mono>
-                </Pressable>
+              <SectionHeader
+                overline="Continue"
+                title="Pick up where you left off."
+                action={
+                  <Noctis
+                    variant="head"
+                    size={26}
+                    color={colors.mutedText as string}
+                    eyeColor={palette.sage}
+                  />
+                }
+              />
+              <View style={{ flexDirection: 'row', gap: spacing.lg, flexWrap: 'wrap' }}>
+                {resumeClips.map((c, i) => (
+                  <Animated.View
+                    key={c.id}
+                    entering={ENTER.fadeUp(stagger(i, 70, 40))}
+                    style={{ flex: 1, minWidth: 260 }}
+                  >
+                    <Pressable
+                      onPress={() => router.push(`/player/${c.id}` as any)}
+                      style={({ hovered, pressed }: any) => ({
+                        opacity: pressed ? 0.9 : 1,
+                        transform: [{ translateY: hovered ? -3 : 0 }],
+                        transitionProperty: 'transform' as any,
+                        transitionDuration: '200ms' as any,
+                        cursor: 'pointer' as any,
+                      })}
+                    >
+                      <Surface padded={spacing.xl} radius="xl" style={{ gap: spacing.md, minHeight: 160 }}>
+                        <View
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                          }}
+                        >
+                          <Chip label="Lesson" variant="class" classColor={palette.sage} size="sm" />
+                          <MonoSm muted>{formatRelative(c.created_at)}</MonoSm>
+                        </View>
+                        <TitleSm numberOfLines={2}>{c.title}</TitleSm>
+                        <View style={{ flex: 1 }} />
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Feather name="play-circle" size={14} color={palette.sage} />
+                          <MonoSm color={palette.sage}>resume · {formatDuration(c.duration_s)}</MonoSm>
+                        </View>
+                      </Surface>
+                    </Pressable>
+                  </Animated.View>
+                ))}
               </View>
+            </View>
+
+            {/* Recent lessons */}
+            <View>
+              <SectionHeader
+                overline="Recent lessons"
+                title="Fresh from the lab."
+                action={<ViewAllLink onPress={() => router.push('/(tabs)/library' as any)} />}
+              />
               <View style={{ flexDirection: 'row', gap: spacing.lg, flexWrap: 'wrap' }}>
                 {recentClips.map((c, i) => (
                   <ClipCard
@@ -280,7 +406,7 @@ export default function FeedWebScreen() {
                     index={i}
                     tokens={DEFAULT_DNA}
                     title={c.title}
-                    className="Course"
+                    className="Lesson"
                     classColor={palette.sage}
                     tint={c.thumbnail_color ?? palette.tealDeep}
                     duration={formatDuration(c.duration_s)}
@@ -290,31 +416,26 @@ export default function FeedWebScreen() {
               </View>
             </View>
 
-            {/* Resume row */}
-            <View>
-              <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: spacing.lg }}>
-                <View>
-                  <Overline muted>Continue</Overline>
-                  <Title style={{ marginTop: 4 }}>Pick up where you left off.</Title>
+            {/* Your shelves */}
+            {hasCourses ? (
+              <View>
+                <SectionHeader
+                  overline="Your shelves"
+                  title="Jump into a topic."
+                  action={<ViewAllLink onPress={() => router.push('/(tabs)/library' as any)} label="all shelves" />}
+                />
+                <View style={{ flexDirection: 'row', gap: spacing.lg, flexWrap: 'wrap' }}>
+                  {topShelves.map((s, i) => (
+                    <ShelfCard
+                      key={s.id}
+                      shelf={s}
+                      index={i}
+                      onPress={() => openShelf(s.id)}
+                    />
+                  ))}
                 </View>
-                <Noctis variant="head" size={28} color={colors.mutedText as string} eyeColor={palette.sage} />
               </View>
-              <View style={{ flexDirection: 'row', gap: spacing.lg, flexWrap: 'wrap' }}>
-                {resumeClips.map((c, i) => (
-                  <Animated.View key={c.id} entering={ENTER.fadeUp(stagger(i, 70, 40))} style={{ flex: 1, minWidth: 240 }}>
-                    <Pressable onPress={() => router.push(`/player/${c.id}` as any)}>
-                      <Surface padded={spacing.xl} radius="xl" style={{ gap: spacing.md, minHeight: 160 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <Chip label="Course" variant="class" classColor={palette.sage} size="sm" />
-                          <MonoSm muted>{formatRelative(c.created_at)}</MonoSm>
-                        </View>
-                        <TitleSm numberOfLines={2}>{c.title}</TitleSm>
-                      </Surface>
-                    </Pressable>
-                  </Animated.View>
-                ))}
-              </View>
-            </View>
+            ) : null}
           </>
         )}
       </View>

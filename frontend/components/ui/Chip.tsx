@@ -3,6 +3,7 @@ import { Pressable, View, ViewStyle, StyleProp } from 'react-native';
 import { useAppTheme } from '@/contexts/ThemeContext';
 import { Text } from '@/components/ui/Text';
 import { palette, radii } from '@/constants/tokens';
+import { webStyle } from '@/lib/web';
 
 export interface ChipProps {
   label: string;
@@ -67,7 +68,7 @@ export function Chip({
   return (
     <Container
       onPress={onPress}
-      style={({ pressed }: any) => [
+      style={({ pressed, hovered, focused }: any) => [
         {
           flexDirection: 'row',
           alignItems: 'center',
@@ -77,9 +78,12 @@ export function Chip({
           backgroundColor: bg,
           borderWidth: variant === 'outline' || variant === 'class' ? 1 : 0,
           borderColor,
-          opacity: pressed ? 0.82 : 1,
+          opacity: pressed ? 0.82 : hovered ? 0.92 : 1,
           alignSelf: 'flex-start',
         },
+        onPress ? webStyle.pointer : null,
+        onPress ? webStyle.transition() : null,
+        onPress && focused ? webStyle.focusRing(colors.primary as string) : null,
         style,
       ]}
     >

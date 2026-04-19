@@ -12,6 +12,7 @@ import { useAppTheme } from '@/contexts/ThemeContext';
 import { palette, radii } from '@/constants/tokens';
 import { Text } from '@/components/ui/Text';
 import { LinearGradient } from 'expo-linear-gradient';
+import { webStyle } from '@/lib/web';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'tertiary' | 'danger' | 'shimmer';
 export type ButtonSize = 'sm' | 'md' | 'lg';
@@ -133,7 +134,8 @@ export function Button({
       {...rest}
       onPress={handlePress}
       disabled={disabled}
-      style={({ pressed }) => [
+      accessibilityRole={(rest as any).accessibilityRole ?? 'button'}
+      style={({ pressed, hovered, focused }: any) => [
         {
           paddingVertical: s.py,
           paddingHorizontal: s.px,
@@ -145,11 +147,16 @@ export function Button({
           borderColor,
           borderWidth,
           minHeight: s.min,
-          opacity: disabled ? 0.55 : pressed ? 0.82 : 1,
+          opacity: disabled ? 0.55 : pressed ? 0.82 : hovered ? 0.94 : 1,
           overflow: 'hidden',
           transform: [{ scale: pressed && !disabled ? 0.985 : 1 }],
           alignSelf: fullWidth ? 'stretch' : 'flex-start',
         },
+        disabled ? webStyle.notAllowed : webStyle.pointer,
+        webStyle.transition(),
+        focused && !disabled
+          ? webStyle.focusRing(colors.primary as string)
+          : null,
         style,
       ]}
     >

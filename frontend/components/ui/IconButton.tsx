@@ -3,6 +3,7 @@ import { Pressable, ViewStyle, StyleProp, Platform } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useAppTheme } from '@/contexts/ThemeContext';
 import { palette, radii } from '@/constants/tokens';
+import { webStyle } from '@/lib/web';
 
 export interface IconButtonProps {
   children: React.ReactNode;
@@ -45,7 +46,7 @@ export function IconButton({
       disabled={disabled}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
-      style={({ pressed }) => [
+      style={({ pressed, hovered, focused }: any) => [
         {
           width: size,
           height: size,
@@ -53,11 +54,16 @@ export function IconButton({
           backgroundColor: bg,
           alignItems: 'center',
           justifyContent: 'center',
-          opacity: disabled ? 0.45 : pressed ? 0.7 : 1,
+          opacity: disabled ? 0.45 : pressed ? 0.7 : hovered ? 0.9 : 1,
           transform: [{ scale: pressed ? 0.94 : 1 }],
           borderWidth: variant === 'filled' || variant === 'elevated' ? 1 : 0,
           borderColor: colors.border as string,
         },
+        disabled ? webStyle.notAllowed : webStyle.pointer,
+        webStyle.transition(),
+        focused && !disabled
+          ? webStyle.focusRing(colors.primary as string)
+          : null,
         style,
       ]}
     >

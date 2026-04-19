@@ -13,6 +13,7 @@ import { useAppTheme } from '@/contexts/ThemeContext';
 import { Text, Overline } from '@/components/ui/Text';
 import { radii, palette } from '@/constants/tokens';
 import { type as fontType } from '@/constants/tokens';
+import { isWeb } from '@/lib/web';
 
 export interface TextFieldProps extends TextInputProps {
   label?: string;
@@ -90,6 +91,16 @@ export function TextField({
             : { borderWidth: 1 }),
           borderColor,
           paddingHorizontal: variant === 'underline' || variant === 'editorial' ? 0 : 14,
+          // focus ring replacement on web since TextInput's native outline is stripped above
+          ...(isWeb && focused && variant !== 'underline' && variant !== 'editorial'
+            ? ({ boxShadow: `0 0 0 2px ${(colors.primary as string)}33` } as any)
+            : {}),
+          ...(isWeb
+            ? ({
+                transitionProperty: 'border-color, box-shadow',
+                transitionDuration: '140ms',
+              } as any)
+            : {}),
         }}
       >
         {leading ? <View style={{ marginRight: 10 }}>{leading}</View> : null}

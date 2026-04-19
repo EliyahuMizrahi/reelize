@@ -183,37 +183,25 @@ export default function LibraryScreen() {
     return topicList.find((t) => t.id === activeTopicId) ?? topicList[0];
   }, [topicList, activeTopicId]);
 
-  // ── Cross-fade on selection change ─────────────────────────────────────
-  // The queries keep stale data visible while the new fetch runs, which was
-  // flashing old discs / old clips under the newly-picked shelf or disc.
-  // We fade out, hold for ~220ms (enough for Supabase to respond on a typical
-  // connection), then fade in. If the backend is slower the new content
-  // shows a brief loading state — still cleaner than seeing wrong data.
-  //
-  // A shelf switch always fades. A disc change fades only when it was
-  // user-initiated; when the auto-select effect above reconciles the topic id
-  // after topics arrive, it flags `suppressTopicFadeRef` so that second
-  // transition is silent.
+  // ── Cross-fade on shelf change only ────────────────────────────────────
+  // Shelf switches are a big context change — fade the whole screen so the
+  // stale clips don't flash under the new shelf's header. Disc switches stay
+  // inline: ClipsTab swaps its grid for skeletons while the query reloads.
   const contentOpacity = useSharedValue(1);
   const firstRender = useRef(true);
   const prevActiveIdRef = useRef(activeId);
-  const prevTopicIdRef = useRef(activeTopicId);
   useEffect(() => {
     if (firstRender.current) {
       firstRender.current = false;
       prevActiveIdRef.current = activeId;
-      prevTopicIdRef.current = activeTopicId;
       return;
     }
     const shelfChanged = prevActiveIdRef.current !== activeId;
-    const topicChanged = prevTopicIdRef.current !== activeTopicId;
     prevActiveIdRef.current = activeId;
-    prevTopicIdRef.current = activeTopicId;
-
-    const topicFade = topicChanged && !suppressTopicFadeRef.current;
+    // Reset the suppress flag if it was set — no longer used but keep the
+    // ref clean in case something else wires back into it.
     if (suppressTopicFadeRef.current) suppressTopicFadeRef.current = false;
-
-    if (!shelfChanged && !topicFade) return;
+    if (!shelfChanged) return;
     contentOpacity.value = withSequence(
       withTiming(0, { duration: 140, easing: Easing.out(Easing.quad) }),
       withDelay(
@@ -221,7 +209,7 @@ export default function LibraryScreen() {
         withTiming(1, { duration: 220, easing: Easing.out(Easing.cubic) }),
       ),
     );
-  }, [activeId, activeTopicId, contentOpacity]);
+  }, [activeId, contentOpacity]);
   const contentAnim = useAnimatedStyle(() => ({ opacity: contentOpacity.value }));
 
   // ── Empty-state delay gate ─────────────────────────────────────────────
@@ -339,12 +327,13 @@ export default function LibraryScreen() {
           onOpenTemplates={() => setTemplatesOpen(true)}
         />
 
-        {/* Disc (topic) picker — sits beneath the shelf header and scopes the
-            clips below. */}
-        <DiscHeaderBar
+        {/* Disc strip: tap to switch, long-press to open picker (rename/delete). */}
+        <DiscPillsRow
           activeClass={activeClass}
-          activeTopic={activeTopic}
-          topicCount={topicList.length}
+          topics={topicList}
+          activeTopicId={activeTopicId}
+          onPick={setActiveTopicId}
+          onCreate={onCreateDisc}
           onOpenPicker={() => setTopicPickerOpen(true)}
         />
 
@@ -500,89 +489,121 @@ function CourseHeaderBar({
 
         <TemplatesChip onPress={onOpenTemplates} />
       </View>
-
-      {activeClass ? (
-        <MonoSm muted style={{ marginTop: 4 }}>
-          {activeClass.topic_count} discs · {activeClass.clip_count} clips
-        </MonoSm>
-      ) : null}
     </View>
   );
 }
 
-// ───────────────────────── Disc header bar ─────────────────────────
-// Mirrors CourseHeaderBar one level down. `activeTopic === null` means the
-// shelf-level "All discs" view, so the label reads "All discs" and the color
-// dot falls back to the shelf's color.
-function DiscHeaderBar({
+// ───────────────────────── Disc pills row ─────────────────────────
+// Compact horizontal strip of discs under the active shelf. Tap = switch;
+// long-press = open the picker modal (rename/delete). Replaces the previous
+// DiscHeaderBar entirely — active state reads from the filled pill.
+function DiscPillsRow({
   activeClass,
-  activeTopic,
-  topicCount,
+  topics,
+  activeTopicId,
+  onPick,
+  onCreate,
   onOpenPicker,
 }: {
   activeClass: ClassWithCounts | null;
-  activeTopic: TopicWithClipCount | null;
-  topicCount: number;
+  topics: TopicWithClipCount[];
+  activeTopicId: string | null;
+  onPick: (id: string) => void;
+  onCreate: () => void;
   onOpenPicker: () => void;
 }) {
   const { colors } = useAppTheme();
   if (!activeClass) return null;
-
-  const hasDiscs = topicCount > 0;
-  const label = activeTopic?.name ?? (hasDiscs ? 'Pick a disc' : 'No discs yet');
-  const dotColor = activeClass.color_hex ?? palette.teal;
-  const subtitle = activeTopic
-    ? `${activeTopic.clip_count} clip${activeTopic.clip_count === 1 ? '' : 's'}`
-    : hasDiscs
-      ? `${topicCount} disc${topicCount === 1 ? '' : 's'}`
-      : 'Tap to add one';
-
+  const accent = activeClass.color_hex ?? (palette.teal as string);
+  const PILL_PV = 4;
+  const PILL_PH = 10;
   return (
     <View
       style={{
-        paddingHorizontal: H_PAD,
-        paddingTop: spacing.xs,
-        paddingBottom: spacing.md,
         borderBottomWidth: 1,
         borderBottomColor: colors.border as string,
+        paddingBottom: spacing.sm,
       }}
     >
-      <Pressable
-        onPress={onOpenPicker}
-        style={({ pressed }) => ({
-          flexDirection: 'row',
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{
+          paddingHorizontal: H_PAD,
+          paddingTop: spacing.xs,
+          gap: 6,
           alignItems: 'center',
-          gap: spacing.sm,
-          opacity: pressed ? 0.7 : 1,
-        })}
-        accessibilityRole="button"
-        accessibilityLabel="Change disc"
+        }}
       >
-        <View
-          style={{
-            width: 10,
-            height: 10,
-            borderRadius: 2,
-            backgroundColor: activeTopic ? dotColor : dotColor + '88',
-          }}
-        />
-        <Title
-          numberOfLines={1}
-          adjustsFontSizeToFit
-          minimumFontScale={0.6}
-          style={{ flexShrink: 1 }}
+        {topics.map((t) => {
+          const isActive = t.id === activeTopicId;
+          return (
+            <Pressable
+              key={t.id}
+              onPress={() => {
+                if (Platform.OS !== 'web') {
+                  Haptics.selectionAsync().catch(() => {});
+                }
+                onPick(t.id);
+              }}
+              onLongPress={onOpenPicker}
+              delayLongPress={320}
+              style={({ pressed }) => ({
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 6,
+                paddingHorizontal: PILL_PH,
+                paddingVertical: PILL_PV,
+                borderRadius: 999,
+                borderWidth: StyleSheet.hairlineWidth,
+                borderColor: isActive ? accent : (colors.border as string),
+                backgroundColor: isActive ? accent : 'transparent',
+                opacity: pressed ? 0.75 : 1,
+              })}
+              accessibilityRole="button"
+              accessibilityLabel={`Switch to ${t.name}`}
+            >
+              <MonoSm
+                style={{
+                  color: isActive
+                    ? (palette.ink as string)
+                    : (colors.mutedText as string),
+                  fontWeight: isActive ? '700' : '500',
+                  fontSize: 12,
+                  lineHeight: 16,
+                }}
+              >
+                {t.name}
+              </MonoSm>
+            </Pressable>
+          );
+        })}
+        <Pressable
+          onPress={onCreate}
+          style={({ pressed }) => ({
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 4,
+            paddingHorizontal: PILL_PH,
+            paddingVertical: PILL_PV,
+            borderRadius: 999,
+            borderWidth: StyleSheet.hairlineWidth,
+            borderStyle: 'dashed',
+            borderColor: colors.mutedText as string,
+            opacity: pressed ? 0.7 : 1,
+          })}
+          accessibilityRole="button"
+          accessibilityLabel="Create a new disc"
         >
-          {label}
-        </Title>
-        <Feather
-          name="chevron-down"
-          size={16}
-          color={colors.mutedText as string}
-        />
-      </Pressable>
-      <MonoSm muted style={{ marginTop: 2 }}>
-        {subtitle}
-      </MonoSm>
+          <Feather name="plus" size={11} color={colors.mutedText as string} />
+          <MonoSm
+            muted
+            style={{ fontSize: 12, lineHeight: 16 }}
+          >
+            New
+          </MonoSm>
+        </Pressable>
+      </ScrollView>
     </View>
   );
 }
@@ -660,6 +681,13 @@ function ClipsTab({
   const list = clips ?? [];
   const [menuClip, setMenuClip] = useState<Row<'clips'> | null>(null);
 
+  // Only the clips belonging to the currently-active disc are "visible".
+  // useAsync keeps the previous disc's data around during a refetch, which
+  // would otherwise flash the wrong clips right after a disc switch.
+  const visibleList = activeTopic
+    ? list.filter((c) => c.topic_id === activeTopic.id)
+    : [];
+
   // Show "No disc selected" only once the topics fetch has settled for the
   // current shelf. While `topicsLoading` is true the stale topic list may be
   // empty (e.g. switching away from an empty shelf), and surfacing the panel
@@ -696,14 +724,16 @@ function ClipsTab({
               body="Create a disc from the picker above to start filling it with clips."
             />
           ) : null
-        ) : loading ? (
-          <MonoSm muted>Loading clips…</MonoSm>
-        ) : list.length === 0 ? (
-          <EmptyPanel
-            icon="film"
-            title="No clips yet."
-            body="Pick a template and spin up your first clip. Generation is wired up soon."
-          />
+        ) : visibleList.length === 0 ? (
+          // Quiet during the fetch; only surface the empty panel once
+          // loading has settled and we know the disc really has no clips.
+          loading ? null : (
+            <EmptyPanel
+              icon="film"
+              title="No clips yet."
+              body="Pick a template and spin up your first clip. Generation is wired up soon."
+            />
+          )
         ) : (
           <View
             style={{
@@ -712,7 +742,7 @@ function ClipsTab({
               gap: GRID_GAP,
             }}
           >
-            {list.map((clip, i) => (
+            {visibleList.map((clip, i) => (
               <ClipCard
                 key={clip.id}
                 clip={clip}
@@ -790,7 +820,7 @@ function ClipCard({
 
   return (
     <Animated.View
-      entering={ENTER.fadeUp(80 + index * 40)}
+      entering={ENTER.fade(index * 40)}
       style={{ width: CLIP_COL_W, height: CLIP_CARD_H }}
     >
       <Pressable
@@ -2492,7 +2522,7 @@ function NewClipModal({
 
           {picked ? (
             <View style={{ gap: 6 }}>
-              <Overline muted>DISC</Overline>
+              <Overline muted>SUBJECT</Overline>
               <TextField
                 font="serif"
                 placeholder="e.g. Pythagorean theorem"
@@ -2500,9 +2530,6 @@ function NewClipModal({
                 onChangeText={setTopic}
                 autoFocus
               />
-              <MonoSm muted>
-                The backend rewrites the template's script around this disc.
-              </MonoSm>
             </View>
           ) : null}
 
