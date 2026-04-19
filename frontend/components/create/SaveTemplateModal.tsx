@@ -1,45 +1,38 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Modal, Platform, Pressable, ScrollView, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Modal, Platform, Pressable, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
 import { Button } from '@/components/ui/Button';
 import { IconButton } from '@/components/ui/IconButton';
 import { TextField } from '@/components/ui/TextField';
-import { BodySm, MonoSm, Overline, Text, Title } from '@/components/ui/Text';
+import { BodySm, MonoSm, Overline, Title } from '@/components/ui/Text';
 import { useAppTheme } from '@/contexts/ThemeContext';
 import { palette, radii, spacing } from '@/constants/tokens';
-import { useClasses } from '@/data/hooks';
 import { createTemplateFromJob } from '@/data/mutations';
 import type { Row } from '@/types/supabase';
 
 export type SaveTemplateResult = {
   template: Row<'templates'>;
-  classId: string | null;
 };
 
 export function SaveTemplateModal({
   open,
   jobId,
   defaultName,
-  defaultClassId,
   onClose,
   onSaved,
 }: {
   open: boolean;
   jobId: string | null;
   defaultName?: string | null;
-  defaultClassId?: string | null;
   onClose: () => void;
   onSaved: (result: SaveTemplateResult) => void;
 }) {
   const { colors } = useAppTheme();
-  const { data: classes } = useClasses();
-  const classList = useMemo(() => classes ?? [], [classes]);
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [classId, setClassId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -48,10 +41,9 @@ export function SaveTemplateModal({
     if (!open) return;
     setName((defaultName ?? '').trim());
     setDescription('');
-    setClassId(defaultClassId ?? classList[0]?.id ?? null);
     setErr(null);
     setBusy(false);
-  }, [open, defaultName, defaultClassId, classList]);
+  }, [open, defaultName]);
 
   const canSave = !busy && !!jobId && name.trim().length >= 2;
 
@@ -62,14 +54,14 @@ export function SaveTemplateModal({
     try {
       const tpl = await createTemplateFromJob({
         jobId,
-        classId,
+        classId: null,
         name: name.trim(),
         description: description.trim() || null,
       });
       if (Platform.OS !== 'web') {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
       }
-      onSaved({ template: tpl, classId });
+      onSaved({ template: tpl });
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
       setBusy(false);
@@ -122,8 +114,8 @@ export function SaveTemplateModal({
             Keep this recipe.
           </Title>
           <BodySm muted>
-            Name it, file it in a course. We'll save the SFX, cuts, and style DNA so you
-            can spin up new clips in the same shape later.
+            Name it and we'll save the SFX, cuts, and style DNA so you can spin up new
+            clips in the same shape later.
           </BodySm>
 
           <View style={{ gap: 6 }}>
@@ -135,92 +127,6 @@ export function SaveTemplateModal({
               onChangeText={setName}
               autoFocus
             />
-          </View>
-
-          <View style={{ gap: 6 }}>
-            <Overline muted>COURSE</Overline>
-            {classList.length === 0 ? (
-              <BodySm muted>
-                No courses yet — the template will be unfiled. Create one from Library to
-                file it later.
-              </BodySm>
-            ) : (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ gap: spacing.sm, paddingVertical: 2 }}
-              >
-                <Pressable
-                  onPress={() => setClassId(null)}
-                  style={({ pressed }) => ({
-                    paddingVertical: 8,
-                    paddingHorizontal: 12,
-                    borderRadius: radii.pill,
-                    borderWidth: 1,
-                    borderColor:
-                      classId === null
-                        ? (colors.primary as string)
-                        : (colors.border as string),
-                    backgroundColor:
-                      classId === null
-                        ? (colors.primary as string) + '22'
-                        : 'transparent',
-                    opacity: pressed ? 0.7 : 1,
-                  })}
-                >
-                  <Text
-                    variant="bodySm"
-                    weight="medium"
-                    color={
-                      classId === null
-                        ? (colors.primary as string)
-                        : (colors.mutedText as string)
-                    }
-                  >
-                    Unfiled
-                  </Text>
-                </Pressable>
-                {classList.map((c) => {
-                  const active = c.id === classId;
-                  return (
-                    <Pressable
-                      key={c.id}
-                      onPress={() => setClassId(c.id)}
-                      style={({ pressed }) => ({
-                        paddingVertical: 8,
-                        paddingHorizontal: 12,
-                        borderRadius: radii.pill,
-                        borderWidth: 1,
-                        borderColor: active ? c.color_hex : (colors.border as string),
-                        backgroundColor: active ? c.color_hex + '22' : 'transparent',
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        gap: 6,
-                        opacity: pressed ? 0.7 : 1,
-                      })}
-                    >
-                      <View
-                        style={{
-                          width: 10,
-                          height: 10,
-                          borderRadius: 3,
-                          backgroundColor: c.color_hex,
-                        }}
-                      />
-                      <Text
-                        variant="bodySm"
-                        weight="medium"
-                        color={
-                          active ? (colors.text as string) : (colors.mutedText as string)
-                        }
-                      >
-                        {c.name}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
-            )}
           </View>
 
           <View style={{ gap: 6 }}>

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { View, Pressable, ScrollView, Platform } from 'react-native';
+import { Modal, View, Pressable, ScrollView, Platform } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -9,7 +10,7 @@ import Animated, {
   Easing,
   FadeIn,
 } from 'react-native-reanimated';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import Svg, { Path } from 'react-native-svg';
 
@@ -18,12 +19,14 @@ import { Surface } from '@/components/ui/Surface';
 import { Button } from '@/components/ui/Button';
 import { TextField } from '@/components/ui/TextField';
 import {
+  BodySm,
   Display2,
   BodyLg,
   Mono,
   MonoSm,
   Overline,
   Text,
+  Title,
   TitleSm,
 } from '@/components/ui/Text';
 import { Noctis } from '@/components/brand/Noctis';
@@ -31,6 +34,8 @@ import { ENTER, stagger } from '@/components/ui/motion';
 import { useAppTheme } from '@/contexts/ThemeContext';
 import { palette, radii, spacing, motion } from '@/constants/tokens';
 import { useFeed } from '@/data/hooks';
+import { clearActiveJob, getActiveJob, setActiveJob } from '@/lib/activeJob';
+import { getJob, listJobs } from '@/services/api';
 import type { Row } from '@/types/supabase';
 
 type Tab = 'url' | 'roll' | 'recents';
@@ -409,8 +414,105 @@ function RecentsTab({ onPick }: { onPick: (url: string) => void }) {
 export default function CreateScreen() {
   const router = useRouter();
   const { colors } = useAppTheme();
+  const params = useLocalSearchParams<{ templateSaved?: string }>();
   const [tab, setTab] = useState<Tab>('url');
   const [activeUrl, setActiveUrl] = useState('');
+  const [templateSavedOpen, setTemplateSavedOpen] = useState(false);
+
+  useEffect(() => {
+    if (params.templateSaved !== '1') return;
+    setTemplateSavedOpen(true);
+    if (Platform.OS !== 'web') {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
+        () => {},
+      );
+    }
+    router.setParams({ templateSaved: undefined } as any);
+  }, [params.templateSaved, router]);
+
+  useEffect(() => {
+    if (!templateSavedOpen) return;
+    const t = setTimeout(() => setTemplateSavedOpen(false), 2400);
+    return () => clearTimeout(t);
+  }, [templateSavedOpen]);
+
+  // If a deconstruction job is still running on the backend, hop back into
+  // the deconstruction screen so the user picks up where they left off.
+  // Strategy:
+  //  1. Try the AsyncStorage pointer first (fast, no network).
+  //  2. Fall back to `/jobs` so we also catch jobs started on other devices
+  //     or before the pointer code was deployed.
+  // In both paths we verify status via `/jobs/:id` so a stale/terminal job
+  // never traps the user in a dead screen.
+  useEffect(() => {
+    let cancelled = false;
+    const isTerminal = (s: string) =>
+      s === 'done' || s === 'failed' || s === 'cancelled';
+
+    // Guard against orphaned/dead jobs: if the DB row hasn't been touched in
+    // STALE_MS, the worker almost certainly died without marking it terminal.
+    // Don't auto-resume into a zombie.
+    const STALE_MS = 5 * 60 * 1000;
+    const isFresh = (updatedAt: string | undefined | null): boolean => {
+      if (!updatedAt) return false;
+      const t = Date.parse(updatedAt);
+      if (!Number.isFinite(t)) return false;
+      return Date.now() - t < STALE_MS;
+    };
+
+    (async () => {
+      // Path 1 — local pointer
+      const active = await getActiveJob();
+      if (!active || cancelled) {
+        // Path 2 — backend fallback
+        try {
+          const jobs = await listJobs(5);
+          if (cancelled) return;
+          const live = jobs.find(
+            (j) =>
+              !isTerminal(j.status as string) &&
+              isFresh((j as any).updated_at),
+          );
+          if (!live) return;
+          await setActiveJob({
+            jobId: live.id,
+            url: (live as any).source_url ?? '',
+            startedAt: Date.now(),
+          });
+          router.replace({
+            pathname: '/create/deconstruction',
+            params: {
+              jobId: live.id,
+              url: (live as any).source_url ?? '',
+            },
+          } as any);
+        } catch {
+          // offline / auth blip — stay on Create
+        }
+        return;
+      }
+      try {
+        const job = await getJob(active.jobId);
+        if (cancelled) return;
+        if (
+          isTerminal(job.status as string) ||
+          !isFresh((job as any).updated_at)
+        ) {
+          await clearActiveJob();
+          return;
+        }
+        router.replace({
+          pathname: '/create/deconstruction',
+          params: { jobId: active.jobId, url: active.url },
+        } as any);
+      } catch {
+        await clearActiveJob();
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
 
   const noctisFloat = useSharedValue(0);
   useEffect(() => {
@@ -523,6 +625,82 @@ export default function CreateScreen() {
           />
         </Animated.View>
       ) : null}
+
+      <TemplateSavedModal
+        open={templateSavedOpen}
+        onClose={() => setTemplateSavedOpen(false)}
+      />
     </Screen>
+  );
+}
+
+function TemplateSavedModal({
+  open,
+  onClose,
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
+  const { colors } = useAppTheme();
+  return (
+    <Modal visible={open} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable
+        onPress={onClose}
+        style={{
+          flex: 1,
+          backgroundColor: 'rgba(4,20,30,0.72)',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: spacing.xl,
+        }}
+      >
+        <Pressable
+          onPress={() => {}}
+          style={{
+            width: '100%',
+            maxWidth: 420,
+            padding: spacing.xl,
+            borderRadius: radii['2xl'],
+            backgroundColor: colors.card as string,
+            borderWidth: 1,
+            borderColor: colors.border as string,
+            alignItems: 'center',
+            gap: spacing.md,
+          }}
+        >
+          <View
+            style={{
+              width: 56,
+              height: 56,
+              borderRadius: 28,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: (colors.primary as string) + '22',
+              borderWidth: 1,
+              borderColor: (colors.primary as string) + '55',
+            }}
+          >
+            <Feather
+              name="check"
+              size={26}
+              color={colors.primary as string}
+            />
+          </View>
+          <Title family="serif" italic>
+            Template saved.
+          </Title>
+          <BodySm muted style={{ textAlign: 'center' }}>
+            Find it in your Library whenever you're ready to reuse it.
+          </BodySm>
+          <Button
+            variant="shimmer"
+            size="md"
+            title="Got it"
+            fullWidth
+            onPress={onClose}
+          />
+        </Pressable>
+      </Pressable>
+    </Modal>
   );
 }

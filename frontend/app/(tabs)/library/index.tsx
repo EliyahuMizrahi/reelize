@@ -657,25 +657,27 @@ function TemplateRow({
           gap: spacing.md,
         }}
       >
-        <View style={{ flex: 1, gap: 8 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-            <View
-              style={{
-                width: 10,
-                height: 10,
-                borderRadius: 2,
-                backgroundColor: classColor,
-              }}
-            />
-            <Title numberOfLines={1} style={{ flexShrink: 1 }}>
-              {template.name}
-            </Title>
+        <View style={{ flex: 1, gap: 8, justifyContent: 'space-between' }}>
+          <View style={{ gap: 8 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+              <View
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: 2,
+                  backgroundColor: classColor,
+                }}
+              />
+              <Title numberOfLines={1} style={{ flexShrink: 1 }}>
+                {template.name}
+              </Title>
+            </View>
+            {template.description ? (
+              <BodySm muted numberOfLines={2}>
+                {template.description}
+              </BodySm>
+            ) : null}
           </View>
-          {template.description ? (
-            <BodySm muted numberOfLines={2}>
-              {template.description}
-            </BodySm>
-          ) : null}
           <MonoSm muted numberOfLines={1} style={{ marginTop: 4 }}>
             {summary}
           </MonoSm>

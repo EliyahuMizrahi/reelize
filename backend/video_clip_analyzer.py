@@ -97,13 +97,13 @@ class AnalyzerConfig:
     # parallel up to this many in flight. Segments are independent so the
     # wall clock drops ~linearly. Keep modest on a single API key so the
     # burst doesn't trip free-tier 429s; _safe_generate already retries.
-    segment_concurrency: int = 6
+    segment_concurrency: int = 2
 
     # Retries — max_retries is the number of attempts we'll make against a
     # single Gemini call before giving up with the last error. Key rotations
     # on 429/quota don't consume this budget (see max_key_rotations) because
     # rotating is cheap and the next key might be perfectly healthy.
-    max_retries: int = 3
+    max_retries: int = 10
     max_key_rotations: int = 10
 
     # Refinement failure rate — if >25% of per-segment refine/verify calls
@@ -376,7 +376,7 @@ class VideoClipAnalyzer:
     def _check_cancel(self) -> None:
         """Raise AnalysisCancelled if the worker has signalled abort."""
         if self.config.should_cancel():
-            raise AnalysisCancelled("analysis cancelled by sibling stage failure")
+            raise AnalysisCancelled("analysis cancelled by user")
 
     def _emit(self, event_type: str, message: str,
               data: Optional[dict] = None) -> None:
@@ -618,7 +618,7 @@ Return ONLY valid JSON matching the provided schema."""
                     )
                     if error_retries >= self.config.max_retries:
                         raise RuntimeError("Gemini returned empty response after all retries")
-                    time.sleep(2 ** (error_retries - 1))
+                    time.sleep(min(30, 2 ** (error_retries - 1)))
                     continue
                 return response
             except AnalysisCancelled:
@@ -648,7 +648,7 @@ Return ONLY valid JSON matching the provided schema."""
                 )
                 if error_retries >= self.config.max_retries:
                     break
-                time.sleep(2 ** (error_retries - 1))
+                time.sleep(min(30, 2 ** (error_retries - 1)))
         if last_err:
             raise last_err
         raise RuntimeError("Gemini generate_content exhausted retries with no response")

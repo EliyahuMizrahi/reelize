@@ -412,11 +412,11 @@ export default function SfxReviewScreen() {
         jobId={jobId || null}
         defaultName={topic && topic !== 'Your lesson' ? topic : ''}
         onClose={() => setSaveTemplateOpen(false)}
-        onSaved={({ classId }) => {
+        onSaved={() => {
           setSaveTemplateOpen(false);
           router.replace({
-            pathname: '/(tabs)/library',
-            params: { tab: 'templates', course: classId ?? '' },
+            pathname: '/(tabs)/create',
+            params: { templateSaved: '1' },
           } as any);
         }}
       />

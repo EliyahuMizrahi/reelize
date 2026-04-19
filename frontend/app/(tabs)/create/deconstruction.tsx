@@ -26,6 +26,7 @@ import { palette, radii, spacing } from '@/constants/tokens';
 import { analyze, cancelJob } from '@/services/api';
 import { useJobStream } from '@/hooks/useJobStream';
 import { SaveTemplateModal } from '@/components/create/SaveTemplateModal';
+import { clearActiveJob, setActiveJob } from '@/lib/activeJob';
 
 /* ===========================================================
    Style DNA card — one metric, fills in as real data arrives
@@ -72,11 +73,12 @@ function DnaCard({
 
 export default function DeconstructionScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ url?: string }>();
+  const params = useLocalSearchParams<{ url?: string; jobId?: string }>();
   const { colors } = useAppTheme();
   const url = (params.url as string) || '';
+  const resumeJobId = (params.jobId as string) || '';
 
-  const [jobId, setJobId] = useState<string | null>(null);
+  const [jobId, setJobId] = useState<string | null>(resumeJobId || null);
   const [startError, setStartError] = useState<string | null>(null);
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
   const cancelledRef = useRef(false);
@@ -92,9 +94,11 @@ export default function DeconstructionScreen() {
     sfxItems,
   } = stream;
 
-  // Kick off the real analyze on mount. No clip_id — this is pure
-  // deconstruction; the save-as-clip flow comes later.
+  // Kick off the real analyze on mount — unless we're resuming an existing
+  // job (jobId was passed in params), in which case we just attach to the
+  // stream. No clip_id — pure deconstruction; the save-as-clip flow comes later.
   useEffect(() => {
+    if (resumeJobId) return;
     if (!url) {
       setStartError('No URL provided');
       return;
@@ -105,6 +109,7 @@ export default function DeconstructionScreen() {
         const res = await analyze({ url });
         if (!cancelled && !cancelledRef.current) {
           setJobId(res.job_id);
+          setActiveJob({ jobId: res.job_id, url, startedAt: Date.now() });
         }
       } catch (err: unknown) {
         if (cancelled) return;
@@ -114,7 +119,16 @@ export default function DeconstructionScreen() {
     return () => {
       cancelled = true;
     };
-  }, [url]);
+  }, [url, resumeJobId]);
+
+  // Clear the persisted active-job pointer when the backend reaches any
+  // terminal state. Leaving it set would make the next Create visit redirect
+  // back into a finished job.
+  useEffect(() => {
+    if (status === 'done' || status === 'failed' || status === 'cancelled') {
+      clearActiveJob();
+    }
+  }, [status]);
 
   // Live progress bar tween
   const progress = useSharedValue(0);
@@ -129,10 +143,18 @@ export default function DeconstructionScreen() {
   }));
 
   // ---- Extract real values from the event stream ----
+  type DetectedSong = {
+    song?: string | null;
+    artist?: string | null;
+    video_start?: number | null;
+    video_end?: number | null;
+    shazam_url?: string | null;
+  };
   type AudioDoneData = {
     bpm?: number | null;
     num_speakers?: number | null;
     duration_s?: number | null;
+    songs?: DetectedSong[];
   };
   type VideoDoneData = {
     segment_count?: number;
@@ -165,6 +187,7 @@ export default function DeconstructionScreen() {
     cancelledRef.current = true;
     if (Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
     if (jobId && !isDone) cancelJob(jobId).catch(() => {});
+    clearActiveJob();
     router.back();
   };
 
@@ -227,31 +250,6 @@ export default function DeconstructionScreen() {
           opacity: 0.55,
         }}
       />
-
-      {/* Cancel / close */}
-      <View style={{ position: 'absolute', top: spacing['3xl'], left: spacing.lg, zIndex: 5 }}>
-        <Pressable
-          onPress={onCancel}
-          style={({ pressed }) => ({
-            paddingHorizontal: 14,
-            paddingVertical: 7,
-            borderRadius: radii.pill,
-            opacity: pressed ? 0.72 : 1,
-            borderWidth: 1,
-            borderColor: colors.border as string,
-          })}
-        >
-          <Text
-            variant="caption"
-            weight="semibold"
-            upper
-            color={palette.mist}
-            style={{ letterSpacing: 1.4 }}
-          >
-            {isDone ? 'Close' : 'Cancel'}
-          </Text>
-        </Pressable>
-      </View>
 
       <ScrollView
         contentContainerStyle={{
@@ -410,6 +408,49 @@ export default function DeconstructionScreen() {
           />
         </View>
 
+        {/* Detected songs (from audio.done) */}
+        {audioData?.songs && audioData.songs.length > 0 ? (
+          <View style={{ gap: spacing.sm }}>
+            <Overline style={{ letterSpacing: 2.2 }} color={palette.sage}>
+              {`${audioData.songs.length} SONG${audioData.songs.length === 1 ? '' : 'S'} DETECTED`}
+            </Overline>
+            <View style={{ gap: spacing.xs }}>
+              {audioData.songs.map((s, i) => {
+                const start = typeof s.video_start === 'number' ? s.video_start : null;
+                const end = typeof s.video_end === 'number' ? s.video_end : null;
+                const range =
+                  start != null && end != null
+                    ? `${start.toFixed(1)}s → ${end.toFixed(1)}s`
+                    : null;
+                return (
+                  <Surface
+                    key={`${s.song ?? 'song'}-${i}`}
+                    elevation="card"
+                    radius="lg"
+                    style={{
+                      padding: spacing.md,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: spacing.sm,
+                    }}
+                  >
+                    <Feather name="music" size={16} color={palette.sage} />
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <Text variant="body" weight="semibold" color={palette.mist} numberOfLines={1}>
+                        {s.song ?? 'Unknown track'}
+                      </Text>
+                      <MonoSm muted numberOfLines={1}>
+                        {s.artist ?? '—'}
+                        {range ? ` · ${range}` : ''}
+                      </MonoSm>
+                    </View>
+                  </Surface>
+                );
+              })}
+            </View>
+          </View>
+        ) : null}
+
         {/* Hero frame preview (when done) */}
         {heroUrl ? (
           <View style={{ alignItems: 'center', gap: spacing.xs }}>
@@ -501,20 +542,34 @@ export default function DeconstructionScreen() {
             leading={<Feather name="bookmark" size={18} color={palette.ink} />}
           />
         ) : null}
-        <Button
-          title={
-            isFailed
-              ? 'Back to Create'
-              : isDone
-                ? 'Done'
-                : `Deconstructing… ${progressPct}%`
-          }
-          variant={isFailed ? 'secondary' : 'tertiary'}
-          size="lg"
-          fullWidth
-          disabled={!isDone && !isFailed}
-          onPress={isFailed ? onCancel : onDone}
-        />
+        {isDone || isFailed ? (
+          <Button
+            title={isFailed ? 'Back to Create' : 'Done'}
+            variant={isFailed ? 'secondary' : 'tertiary'}
+            size="lg"
+            fullWidth
+            onPress={onDone}
+          />
+        ) : (
+          <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+            <Button
+              title="Cancel"
+              variant="secondary"
+              size="lg"
+              onPress={onCancel}
+            />
+            <View style={{ flex: 1 }}>
+              <Button
+                title={`Deconstructing… ${progressPct}%`}
+                variant="tertiary"
+                size="lg"
+                fullWidth
+                disabled
+                onPress={() => {}}
+              />
+            </View>
+          </View>
+        )}
       </View>
 
       <SaveTemplateModal
@@ -522,11 +577,11 @@ export default function DeconstructionScreen() {
         jobId={jobId}
         defaultName={null}
         onClose={() => setSaveTemplateOpen(false)}
-        onSaved={({ classId }) => {
+        onSaved={() => {
           setSaveTemplateOpen(false);
           router.replace({
-            pathname: '/(tabs)/library',
-            params: { tab: 'templates', course: classId ?? '' },
+            pathname: '/(tabs)/create',
+            params: { templateSaved: '1' },
           } as any);
         }}
       />

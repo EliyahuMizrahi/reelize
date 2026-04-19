@@ -311,12 +311,19 @@ def _pick_hero_time(video_analysis: dict) -> Optional[float]:
 
 
 def _gemini_api_keys() -> list[str]:
-    """Gather Gemini keys from GEMINI_API_KEY (comma-separated) + GEMINI_API_KEY_BACKUP."""
-    raw = os.environ.get("GEMINI_API_KEY", "")
-    keys = [k.strip() for k in raw.split(",") if k.strip()]
-    backup = os.environ.get("GEMINI_API_KEY_BACKUP", "").strip()
-    if backup and backup not in keys:
-        keys.append(backup)
+    """Gather Gemini keys. GEMINI_API_KEY_BACKUP3, if set, takes the primary
+    slot (key1 is free-tier RPD-exhausted). Otherwise falls back to the
+    original GEMINI_API_KEY. BACKUP4 is appended as the rotation key."""
+    keys: list[str] = []
+    key3 = os.environ.get("GEMINI_API_KEY_BACKUP3", "").strip()
+    if key3:
+        keys.append(key3)
+    else:
+        raw = os.environ.get("GEMINI_API_KEY", "")
+        keys.extend(k.strip() for k in raw.split(",") if k.strip())
+    backup4 = os.environ.get("GEMINI_API_KEY_BACKUP4", "").strip()
+    if backup4 and backup4 not in keys:
+        keys.append(backup4)
     return keys
 
 
@@ -525,10 +532,12 @@ async def _process_job_inner(
         audio_wav = scratch / "source.wav"
         _ffmpeg_extract_audio(video_path, audio_wav)
 
-        # 3. Run audio pipeline + video analyzer in parallel. Each task emits its
-        # own start/done so the frontend checklist fills in independently. If
-        # either fails we flip `cancel_event` so the sibling can stop wasting
-        # work (Gemini calls, demucs, etc.) at its next checkpoint.
+        # 3. Run audio pipeline + video analyzer in parallel. Each task emits
+        # its own start/done so the frontend checklist fills in independently.
+        # The two stages are decoupled — if one dies (e.g. Gemini 503 storm),
+        # the other still ships and we record an `error` stub for the dead
+        # side. Only `cancel_event` set by the user-cancel poller stops the
+        # sibling; a sister-stage failure does not.
         audio_out = scratch / "audio"
 
         def _audio_progress(event_type: str, message: str, data: Optional[dict]) -> None:
@@ -545,6 +554,18 @@ async def _process_job_inner(
                     progress_callback=_audio_progress,
                     cancel_event=cancel_event,
                 )
+                sections = ((result.get("music") or {}).get("sections") or [])
+                songs = [
+                    {
+                        "song": s.get("song"),
+                        "artist": s.get("artist"),
+                        "video_start": s.get("video_start"),
+                        "video_end": s.get("video_end"),
+                        "shazam_url": s.get("shazam_url"),
+                    }
+                    for s in sections
+                    if s.get("song")
+                ]
                 _emit_capped(
                     job_id, "audio.done",
                     stage="audio", message="Audio analysis complete",
@@ -552,11 +573,11 @@ async def _process_job_inner(
                         "bpm": (result.get("rhythm") or {}).get("bpm"),
                         "num_speakers": (result.get("transcript") or {}).get("num_speakers"),
                         "duration_s": (result.get("source") or {}).get("duration"),
+                        "songs": songs,
                     },
                 )
                 return result
             except Exception as e:
-                cancel_event.set()
                 _emit_capped(
                     job_id, "audio.failed",
                     stage="audio", message=f"{type(e).__name__}: {e}",
@@ -581,7 +602,6 @@ async def _process_job_inner(
                 )
                 return result
             except Exception as e:
-                cancel_event.set()
                 _emit_capped(
                     job_id, "video.failed",
                     stage="video", message=f"{type(e).__name__}: {e}",
@@ -590,21 +610,37 @@ async def _process_job_inner(
 
         audio_task = asyncio.create_task(_audio_with_events())
         video_task = asyncio.create_task(_video_with_events())
-        done, pending = await asyncio.wait(
-            {audio_task, video_task}, return_when=asyncio.FIRST_EXCEPTION,
-        )
-        first_exc = next((t.exception() for t in done if t.exception()), None)
-        if first_exc is not None:
-            cancel_event.set()
-            for t in pending:
-                t.cancel()
-            if pending:
-                await asyncio.gather(*pending, return_exceptions=True)
-            raise first_exc
-        if pending:
-            await asyncio.gather(*pending)
-        audio_manifest = audio_task.result()
-        video_analysis = video_task.result()
+        # Wait for BOTH to finish — we want a partial result, not an early bail.
+        await asyncio.wait({audio_task, video_task}, return_when=asyncio.ALL_COMPLETED)
+
+        # If the user cancelled mid-flight the poller already flipped the row;
+        # honour that before treating downstream errors as real failures.
+        _raise_if_cancelled(job_id)
+
+        audio_exc = audio_task.exception()
+        video_exc = video_task.exception()
+
+        if audio_exc is not None and video_exc is not None:
+            # Both stages dead — nothing salvageable. Raise the audio error
+            # (arbitrary; both already emitted *.failed events with details).
+            raise audio_exc
+
+        if audio_exc is not None:
+            log.warning("audio stage failed, continuing with video-only manifest: %s", audio_exc)
+            audio_manifest = {"error": f"{type(audio_exc).__name__}: {audio_exc}"}
+            missing_artifacts.append("audio_pipeline")
+        else:
+            audio_manifest = audio_task.result()
+
+        if video_exc is not None:
+            log.warning("video stage failed, continuing with audio-only manifest: %s", video_exc)
+            video_analysis = {
+                "error": f"{type(video_exc).__name__}: {video_exc}",
+                "segments": [],
+            }
+            missing_artifacts.append("video_analysis")
+        else:
+            video_analysis = video_task.result()
         _raise_if_cancelled(job_id)
         _emit_capped(
             job_id, "analysis.complete",
@@ -790,6 +826,11 @@ async def _process_job_inner(
         # Guarded final write — if the user cancelled while we were uploading,
         # the update returns rowcount=0 and we drop through to the cancel path
         # without stomping the status back to 'done'.
+        # `missing_artifacts` rides inside the existing `artifacts` jsonb under
+        # `_missing` (no schema change needed). The job.done event payload
+        # below also surfaces it directly for the frontend.
+        if missing_artifacts:
+            artifacts["_missing"] = list(missing_artifacts)
         final_fields = {
             "status": "done",
             "video_analysis": video_analysis,
@@ -798,8 +839,6 @@ async def _process_job_inner(
             "artifacts": artifacts,
             "style_dna": style_dna,
         }
-        if missing_artifacts:
-            final_fields["missing_artifacts"] = missing_artifacts
 
         final_state_for_reconcile = {
             "job_id": job_id,

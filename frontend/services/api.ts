@@ -443,7 +443,7 @@ export interface JobEvent {
 }
 
 /** Replay progress history for a job. Pass sinceId to fetch only newer events. */
-export function getJobEvents(
+export async function getJobEvents(
   jobId: string,
   sinceId?: number,
   limit?: number,
@@ -453,10 +453,12 @@ export function getJobEvents(
   if (sinceId !== undefined) params.set('since_id', String(sinceId));
   if (limit !== undefined) params.set('limit', String(limit));
   const qs = params.toString();
-  return request<JobEvent[]>(
-    `/jobs/${jobId}/events${qs ? `?${qs}` : ''}`,
-    { signal },
-  );
+  const resp = await request<{
+    events: JobEvent[];
+    has_more: boolean;
+    max_id: number | null;
+  }>(`/jobs/${jobId}/events${qs ? `?${qs}` : ''}`, { signal });
+  return resp.events ?? [];
 }
 
 /** Value for a single artifact slot. Strings are direct signed URLs; maps are
