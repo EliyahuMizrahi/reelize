@@ -4,6 +4,7 @@ import {
   ScrollView,
   Pressable,
   Modal,
+  Image,
   useWindowDimensions,
   StyleSheet,
 } from 'react-native';
@@ -12,15 +13,26 @@ import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated from 'react-native-reanimated';
 
-import { Surface, Divider } from '@/components/ui/Surface';
+import { Surface } from '@/components/ui/Surface';
 import { Button } from '@/components/ui/Button';
 import { IconButton } from '@/components/ui/IconButton';
-import { Chip } from '@/components/ui/Chip';
 import { TextField } from '@/components/ui/TextField';
-import { Display2, Headline, Title, TitleSm, Body, BodySm, Mono, MonoSm, Overline, Text } from '@/components/ui/Text';
-import { useActiveCourse } from '@/components/navigation/WebAppChrome';
+import {
+  Title,
+  TitleSm,
+  BodySm,
+  Mono,
+  MonoSm,
+  Overline,
+  Text,
+} from '@/components/ui/Text';
+import {
+  useActiveShelf,
+  useActiveDisc,
+} from '@/components/navigation/WebAppChrome';
 import { Shards } from '@/components/brand/Shards';
 import { StyleDNA } from '@/components/brand/StyleDNA';
+import { supabase } from '@/lib/supabase';
 import { palette, spacing, radii } from '@/constants/tokens';
 import { ENTER, stagger } from '@/components/ui/motion';
 import { useAppTheme } from '@/contexts/ThemeContext';
@@ -28,114 +40,31 @@ import {
   useClasses,
   useTopicsForClass,
   useClipsForTopic,
-  useProfileStats,
   useTemplatesForUser,
 } from '@/data/hooks';
-import { createClass, deleteClass, deleteTemplate, updateTemplate } from '@/data/mutations';
+import {
+  createClass,
+  createTopic,
+  deleteClass,
+  deleteTopic,
+  deleteTemplate,
+  updateTemplate,
+} from '@/data/mutations';
 import type { ClassWithCounts, TopicWithClipCount } from '@/data/queries';
 import type { Row } from '@/types/supabase';
 import { formatRelative, summarizeTemplate } from '@/lib/format';
 
-type Sort = 'recent' | 'alpha' | 'most-clips';
+const STORAGE_BUCKET = process.env.EXPO_PUBLIC_SUPABASE_BUCKET ?? 'reelize-artifacts';
 
-// ───────────────────────── Page header ─────────────────────────
-function PageHeader({
-  sort,
-  setSort,
-  counts,
-  courseCount,
-  onNewCourse,
-  onOpenTemplates,
-}: {
-  sort: Sort;
-  setSort: (s: Sort) => void;
-  counts: { topic: number; clip: number };
-  courseCount: number;
-  onNewCourse: () => void;
-  onOpenTemplates: () => void;
-}) {
-  const { colors } = useAppTheme();
-  return (
-    <View
-      style={{
-        paddingVertical: spacing['2xl'],
-        paddingHorizontal: spacing['2xl'],
-        borderBottomWidth: 1,
-        borderBottomColor: colors.border as string,
-        gap: spacing.lg,
-      }}
-    >
-      <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: spacing.lg }}>
-        <View>
-          <Headline>Your courses.</Headline>
-          <BodySm italic family="serif" muted style={{ marginTop: 2 }}>
-            {courseCount} courses. {counts.clip} lessons.
-          </BodySm>
-        </View>
-        <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
-          <Pressable
-            onPress={onOpenTemplates}
-            style={({ hovered, pressed }: any) => ({
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 6,
-              height: 36,
-              paddingHorizontal: 14,
-              borderRadius: radii.sm,
-              borderWidth: 1,
-              borderColor: (colors.primary as string) + (hovered || pressed ? 'AA' : '66'),
-              backgroundColor: hovered || pressed
-                ? (colors.primary as string) + '22'
-                : (colors.primary as string) + '14',
-              transitionProperty: 'background-color, border-color' as any,
-              transitionDuration: '140ms' as any,
-            })}
-          >
-            <Feather name="layers" size={14} color={colors.primary as string} />
-            <Text variant="bodySm" weight="bold" color={colors.primary as string}>
-              Templates
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={onNewCourse}
-            style={({ hovered, pressed }: any) => ({
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 6,
-              height: 36,
-              paddingHorizontal: 14,
-              borderRadius: radii.sm,
-              backgroundColor: pressed || hovered ? (colors.primary as string) : (colors.primary as string) + 'DD',
-            })}
-          >
-            <Feather name="plus" size={14} color={colors.onPrimary as string} />
-            <Text variant="bodySm" weight="semibold" color={colors.onPrimary as string}>
-              New course
-            </Text>
-          </Pressable>
-        </View>
-      </View>
-      {courseCount > 0 ? (
-        <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center', flexWrap: 'wrap' }}>
-          <Overline muted style={{ marginRight: spacing.sm }}>SORT</Overline>
-          <Chip label="Recent" variant="outline" selected={sort === 'recent'} onPress={() => setSort('recent')} size="sm" />
-          <Chip label="A–Z" variant="outline" selected={sort === 'alpha'} onPress={() => setSort('alpha')} size="sm" />
-          <Chip label="Most lessons" variant="outline" selected={sort === 'most-clips'} onPress={() => setSort('most-clips')} size="sm" />
-        </View>
-      ) : null}
-    </View>
-  );
-}
-
-// ───────────────────────── New course modal ─────────────────────────
-function NewCourseModal({
+// ───────────────────────── New shelf modal ─────────────────────────
+function NewShelfModal({
   open,
   onClose,
   onCreated,
 }: {
   open: boolean;
   onClose: () => void;
-  onCreated: (courseId: string) => void;
+  onCreated: (shelfId: string) => void;
 }) {
   const { colors } = useAppTheme();
   const [name, setName] = useState('');
@@ -189,14 +118,14 @@ function NewCourseModal({
             gap: spacing.md,
           }}
         >
-          <Overline muted>NEW COURSE</Overline>
-          <Title>Name your course.</Title>
+          <Overline muted>NEW SHELF</Overline>
+          <Title>Name your shelf.</Title>
           <BodySm muted>
-            Courses are where your lessons live. Pick a subject — you can add topics and lessons next.
+            A shelf groups discs and their clips. Pick a subject — you can add discs and clips next.
           </BodySm>
           <TextField
             variant="boxed"
-            placeholder="e.g. Biology, Krebs Cycle, Statistics"
+            placeholder="e.g. Algebra 1, Biology, Statistics"
             value={name}
             onChangeText={setName}
             autoFocus
@@ -208,7 +137,7 @@ function NewCourseModal({
             <Button
               variant="primary"
               size="sm"
-              title={busy ? 'Creating…' : 'Create course'}
+              title={busy ? 'Creating…' : 'Create shelf'}
               disabled={busy || name.trim().length < 2}
               onPress={submit}
               haptic={false}
@@ -220,301 +149,112 @@ function NewCourseModal({
   );
 }
 
-// ───────────────────────── Empty state ─────────────────────────
-function LibraryEmptyState({ onNewCourse }: { onNewCourse: () => void }) {
+// ───────────────────────── New disc modal ─────────────────────────
+function NewDiscModal({
+  open,
+  shelfId,
+  onClose,
+  onCreated,
+}: {
+  open: boolean;
+  shelfId: string | null;
+  onClose: () => void;
+  onCreated: (discId: string) => void;
+}) {
   const { colors } = useAppTheme();
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setName('');
+      setErr(null);
+      setBusy(false);
+    }
+  }, [open]);
+
+  const submit = async () => {
+    const clean = name.trim();
+    if (!shelfId || clean.length < 2 || busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const created = await createTopic({ classId: shelfId, name: clean });
+      onCreated(created.id);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  };
+
   return (
-    <View style={{ alignItems: 'center', paddingVertical: spacing['5xl'] }}>
-      <Surface
-        padded={spacing['3xl']}
-        radius="xl"
-        bordered
-        style={{ maxWidth: 560, alignItems: 'flex-start', gap: spacing.md }}
+    <Modal visible={open} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable
+        onPress={onClose}
+        style={{
+          flex: 1,
+          backgroundColor: 'rgba(2,6,15,0.72)',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: spacing.xl,
+        }}
       >
-        <View
+        <Pressable
+          onPress={() => {}}
           style={{
-            width: 48,
-            height: 48,
-            borderRadius: 24,
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: colors.elevated as string,
+            width: '100%',
+            maxWidth: 440,
+            padding: spacing['2xl'],
+            borderRadius: radii['2xl'],
+            backgroundColor: colors.card as string,
             borderWidth: 1,
             borderColor: colors.border as string,
+            gap: spacing.md,
           }}
         >
-          <Feather name="book-open" size={20} color={colors.primary as string} />
-        </View>
-        <Overline muted>YOUR LIBRARY IS EMPTY</Overline>
-        <Title>Start your first course.</Title>
-        <BodySm muted>
-          Courses organize your lessons by subject. Create one to start — then add lessons to it by analyzing reels.
-        </BodySm>
-        <Pressable
-          onPress={onNewCourse}
-          style={({ hovered, pressed }: any) => ({
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 6,
-            height: 40,
-            paddingHorizontal: 16,
-            borderRadius: radii.sm,
-            marginTop: spacing.sm,
-            backgroundColor: pressed || hovered ? (colors.primary as string) : (colors.primary as string) + 'DD',
-          })}
-        >
-          <Feather name="plus" size={14} color={colors.onPrimary as string} />
-          <Text variant="bodySm" weight="semibold" color={colors.onPrimary as string}>
-            Create your first course
-          </Text>
+          <Overline muted>NEW DISC</Overline>
+          <Title>Name your disc.</Title>
+          <BodySm muted>
+            Discs are the topics inside a shelf. A disc holds related clips — think one per concept.
+          </BodySm>
+          <TextField
+            variant="boxed"
+            placeholder="e.g. Linear equations, Mitosis, Bayes' rule"
+            value={name}
+            onChangeText={setName}
+            autoFocus
+            onSubmitEditing={submit}
+          />
+          {err ? <MonoSm color={palette.alert}>{err}</MonoSm> : null}
+          <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, justifyContent: 'flex-end' }}>
+            <Button variant="tertiary" size="sm" title="Cancel" onPress={onClose} haptic={false} />
+            <Button
+              variant="primary"
+              size="sm"
+              title={busy ? 'Creating…' : 'Create disc'}
+              disabled={busy || !shelfId || name.trim().length < 2}
+              onPress={submit}
+              haptic={false}
+            />
+          </View>
         </Pressable>
-      </Surface>
-    </View>
-  );
-}
-
-// ───────────────────────── Class card ─────────────────────────
-function ClassCardLarge({
-  cls,
-  index,
-  onPress,
-  onDelete,
-}: {
-  cls: ClassWithCounts;
-  index: number;
-  onPress: () => void;
-  onDelete: () => void;
-}) {
-  return (
-    <Animated.View entering={ENTER.fadeUp(stagger(index, 80, 40))} style={{ flex: 1, minWidth: 260, maxWidth: 400 }}>
-      <Pressable
-        onPress={onPress}
-        style={({ pressed, hovered }: any) => ({
-          transform: [{ translateY: hovered ? -4 : 0 }],
-          opacity: pressed ? 0.9 : 1,
-          transitionProperty: 'transform' as any,
-          transitionDuration: '220ms' as any,
-        })}
-      >
-        <View
-          style={{
-            aspectRatio: 4 / 5,
-            borderRadius: radii['2xl'],
-            overflow: 'hidden',
-            borderWidth: 1,
-            borderColor: cls.color_hex + '55',
-          }}
-        >
-          <LinearGradient
-            colors={[cls.color_hex + 'CC', cls.color_hex + '44', palette.ink]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={StyleSheet.absoluteFillObject}
-          />
-          <View style={{ position: 'absolute', top: 60, left: 40, opacity: 0.2 }}>
-            <Shards size={200} phase="assembled" color={cls.color_hex} />
-          </View>
-          <LinearGradient
-            colors={['transparent', 'rgba(4,20,30,0.9)']}
-            locations={[0.4, 1]}
-            style={StyleSheet.absoluteFillObject}
-            pointerEvents="none"
-          />
-          <View
-            style={{
-              position: 'absolute',
-              top: spacing.lg,
-              right: spacing.lg,
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: spacing.sm,
-            }}
-          >
-            <Pressable
-              onPress={(e) => {
-                e.stopPropagation();
-                onDelete();
-              }}
-              accessibilityLabel={`Delete ${cls.name}`}
-              style={({ hovered, pressed }: any) => ({
-                width: 28,
-                height: 28,
-                borderRadius: radii.sm,
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: hovered || pressed
-                  ? palette.alert + '33'
-                  : 'rgba(4,20,30,0.55)',
-                borderWidth: 1,
-                borderColor: hovered || pressed
-                  ? palette.alert + '88'
-                  : 'rgba(255,255,255,0.12)',
-              })}
-            >
-              <Feather name="trash-2" size={12} color={palette.alert} />
-            </Pressable>
-            <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: radii.xs, backgroundColor: 'rgba(4,20,30,0.55)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)' }}>
-              <MonoSm color={palette.fog}>{String(index + 1).padStart(2, '0')}</MonoSm>
-            </View>
-          </View>
-          <View style={{ position: 'absolute', left: spacing.xl, right: spacing.xl, bottom: spacing.xl }}>
-            <Overline color={cls.color_hex}>{`${cls.clip_count} ${cls.clip_count === 1 ? 'lesson' : 'lessons'}`}</Overline>
-            <Title color={palette.mist} style={{ marginTop: spacing.xs }} numberOfLines={1}>
-              {cls.name}
-            </Title>
-            {cls.description ? (
-              <BodySm italic family="serif" color={palette.fog} style={{ marginTop: 4, opacity: 0.85 }}>
-                {cls.description}
-              </BodySm>
-            ) : null}
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.md }}>
-              <MonoSm color={palette.fog} style={{ opacity: 0.8 }}>{cls.topic_count} topics</MonoSm>
-              <MonoSm color={palette.fog} style={{ opacity: 0.6 }}>{cls.clip_count} lessons</MonoSm>
-            </View>
-          </View>
-        </View>
       </Pressable>
-    </Animated.View>
+    </Modal>
   );
 }
 
-// ───────────────────────── Class drill-down view ─────────────────────────
-function ClassDetailView({
-  cls,
-  onClose,
-}: {
-  cls: ClassWithCounts;
-  onClose: () => void;
-}) {
-  const router = useRouter();
-  const { colors } = useAppTheme();
-  const { data: topicsRaw } = useTopicsForClass(cls.id);
-  const topics = topicsRaw ?? [];
-  const [topicId, setTopicId] = useState<string | undefined>(undefined);
-  // Seed topicId once topics load
-  React.useEffect(() => {
-    if (!topicId && topics.length > 0) setTopicId(topics[0].id);
-  }, [topics, topicId]);
-  const { data: clipsRaw } = useClipsForTopic(topicId);
-  const clips: Row<'clips'>[] = clipsRaw ?? [];
-  const topic = topics.find((t) => t.id === topicId);
-
-  return (
-    <View style={{ flexDirection: 'row', gap: spacing['2xl'], alignItems: 'flex-start' }}>
-      {/* Left: class header + topic list */}
-      <View style={{ width: 320 }}>
-        <Surface padded={spacing.xl} radius="xl" bordered style={{ gap: spacing.md }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Overline color={cls.color_hex}>COURSE</Overline>
-            <IconButton variant="ghost" size={32} onPress={onClose} accessibilityLabel="Back to courses">
-              <Feather name="arrow-left" size={14} color={colors.text as string} />
-            </IconButton>
-          </View>
-          <View>
-            <Title>{cls.name}</Title>
-            {cls.description ? (
-              <BodySm italic family="serif" muted style={{ marginTop: 4 }}>
-                {cls.description}
-              </BodySm>
-            ) : null}
-          </View>
-          <View style={{ flexDirection: 'row', gap: spacing.lg, marginTop: spacing.sm }}>
-            <View>
-              <Mono>{cls.topic_count}</Mono>
-              <MonoSm muted>topics</MonoSm>
-            </View>
-            <View>
-              <Mono>{cls.clip_count}</Mono>
-              <MonoSm muted>lessons</MonoSm>
-            </View>
-          </View>
-        </Surface>
-
-        <View style={{ marginTop: spacing.xl, gap: 4 }}>
-          <Overline muted style={{ marginBottom: spacing.sm, paddingHorizontal: 4 }}>Topics</Overline>
-          {topics.map((t) => {
-            const active = t.id === topicId;
-            return (
-              <Pressable
-                key={t.id}
-                onPress={() => setTopicId(t.id)}
-                style={({ hovered }: any) => ({
-                  position: 'relative',
-                  paddingVertical: 10,
-                  paddingHorizontal: 12,
-                  borderRadius: radii.md,
-                  backgroundColor: active ? cls.color_hex + '22' : hovered ? (colors.elevated as string) : 'transparent',
-                  gap: 2,
-                })}
-              >
-                {active ? (
-                  <View
-                    style={{
-                      position: 'absolute',
-                      left: -10,
-                      top: 10,
-                      bottom: 10,
-                      width: 2,
-                      borderRadius: 1,
-                      backgroundColor: cls.color_hex,
-                    }}
-                  />
-                ) : null}
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <BodySm weight={active ? 'semibold' : 'medium'} color={active ? (palette.mist) : (colors.text as string)}>
-                    {t.name}
-                  </BodySm>
-                  <MonoSm muted>{t.clip_count}</MonoSm>
-                </View>
-                <View style={{ height: 2, backgroundColor: palette.inkBorder, borderRadius: 1, overflow: 'hidden', marginTop: 6 }}>
-                  <View style={{ width: `${t.progress * 100}%`, height: '100%', backgroundColor: cls.color_hex }} />
-                </View>
-              </Pressable>
-            );
-          })}
-        </View>
-      </View>
-
-      {/* Right: clips grid for selected topic */}
-      <View style={{ flex: 1, gap: spacing.lg, minWidth: 0 }}>
-        {topic ? (
-          <>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-              <View>
-                <Overline color={cls.color_hex}>TOPIC</Overline>
-                <Title style={{ marginTop: 4 }}>{topic.name}</Title>
-                {topic.description ? (
-                  <BodySm italic family="serif" muted style={{ marginTop: 4, maxWidth: 520 }}>
-                    {topic.description}
-                  </BodySm>
-                ) : null}
-              </View>
-              <View style={{ alignItems: 'flex-end' }}>
-                <Mono color={palette.gold}>{Math.round(topic.progress * 100)}%</Mono>
-                <MonoSm muted>{topic.clip_count} lessons · {formatRelative(topic.last_studied_at) || 'new'}</MonoSm>
-              </View>
-            </View>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.lg }}>
-              {clips.map((c, i) => (
-                <ClipGridCard key={c.id} clip={c} classColor={cls.color_hex} className={cls.name} index={i} />
-              ))}
-            </View>
-          </>
-        ) : null}
-      </View>
-    </View>
-  );
-}
-
-// ───────────────────────── Templates sheet (web, universal) ─────────────────────────
-// Modal opened from the page header. Templates aren't scoped to a course —
-// any template can be used to spin up a clip in any course at generation time.
+// ───────────────────────── Templates sheet ─────────────────────────
+// Templates aren't scoped to a shelf — any template can spin up a clip in any
+// disc at generation time.
 function WebTemplatesSheet({
   open,
   onClose,
+  shelfColor,
 }: {
   open: boolean;
   onClose: () => void;
+  shelfColor: string;
 }) {
   const { colors } = useAppTheme();
   const { data: templates, loading } = useTemplatesForUser();
@@ -561,21 +301,13 @@ function WebTemplatesSheet({
               <Feather name="layers" size={18} color={colors.primary as string} />
               <Title>Templates</Title>
             </View>
-            <IconButton
-              variant="ghost"
-              size={32}
-              onPress={onClose}
-              accessibilityLabel="Close"
-            >
+            <IconButton variant="ghost" size={32} onPress={onClose} accessibilityLabel="Close">
               <Feather name="x" size={14} color={colors.text as string} />
             </IconButton>
           </View>
 
           <ScrollView
-            contentContainerStyle={{
-              padding: spacing.xl,
-              gap: spacing.md,
-            }}
+            contentContainerStyle={{ padding: spacing.xl, gap: spacing.md }}
             showsVerticalScrollIndicator={false}
           >
             {loading && list.length === 0 ? (
@@ -598,8 +330,7 @@ function WebTemplatesSheet({
                 </View>
                 <Title>No templates yet.</Title>
                 <BodySm muted>
-                  Deconstruct a reel in Create to save its SFX, cuts, and styling as a
-                  reusable template.
+                  Deconstruct a reel in Create to save its SFX, cuts, and styling as a reusable template.
                 </BodySm>
               </Surface>
             ) : (
@@ -607,7 +338,7 @@ function WebTemplatesSheet({
                 <TemplateRowWeb
                   key={tpl.id}
                   template={tpl}
-                  classColor={palette.teal}
+                  shelfColor={shelfColor}
                   onPress={() => setEditing(tpl)}
                 />
               ))
@@ -622,11 +353,11 @@ function WebTemplatesSheet({
 
 function TemplateRowWeb({
   template,
-  classColor,
+  shelfColor,
   onPress,
 }: {
   template: Row<'templates'>;
-  classColor: string;
+  shelfColor: string;
   onPress: () => void;
 }) {
   const { colors } = useAppTheme();
@@ -637,7 +368,7 @@ function TemplateRowWeb({
         padding: spacing.lg,
         borderRadius: radii.xl,
         borderWidth: 1,
-        borderColor: hovered ? classColor + 'AA' : (colors.border as string),
+        borderColor: hovered ? shelfColor + 'AA' : (colors.border as string),
         backgroundColor: colors.card as string,
         gap: 8,
         opacity: pressed ? 0.92 : 1,
@@ -646,14 +377,7 @@ function TemplateRowWeb({
       })}
     >
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-        <View
-          style={{
-            width: 10,
-            height: 10,
-            borderRadius: 2,
-            backgroundColor: classColor,
-          }}
-        />
+        <View style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: shelfColor }} />
         <Title numberOfLines={1} style={{ flexShrink: 1 }}>
           {template.name}
         </Title>
@@ -663,14 +387,7 @@ function TemplateRowWeb({
           {template.description}
         </BodySm>
       ) : null}
-      <View
-        style={{
-          flexDirection: 'row',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginTop: 4,
-        }}
-      >
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
         <MonoSm muted numberOfLines={1} style={{ flex: 1 }}>
           {summarizeTemplate(template)}
         </MonoSm>
@@ -680,8 +397,6 @@ function TemplateRowWeb({
   );
 }
 
-// Web template edit sheet — mirrors the mobile one but uses Modal with web
-// styling tokens.
 function TemplateDetailSheet({
   template,
   onClose,
@@ -735,12 +450,7 @@ function TemplateDetailSheet({
   };
 
   return (
-    <Modal
-      visible={!!template}
-      transparent
-      animationType="fade"
-      onRequestClose={onClose}
-    >
+    <Modal visible={!!template} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable
         onPress={onClose}
         style={{
@@ -767,12 +477,7 @@ function TemplateDetailSheet({
           <Overline muted>TEMPLATE</Overline>
           <View style={{ gap: 6 }}>
             <Overline muted>NAME</Overline>
-            <TextField
-              variant="boxed"
-              placeholder="Template name"
-              value={name}
-              onChangeText={setName}
-            />
+            <TextField variant="boxed" placeholder="Template name" value={name} onChangeText={setName} />
           </View>
           <View style={{ gap: 6 }}>
             <Overline muted>DESCRIPTION</Overline>
@@ -784,17 +489,9 @@ function TemplateDetailSheet({
               multiline
             />
           </View>
-          {template ? (
-            <MonoSm muted>{summarizeTemplate(template)}</MonoSm>
-          ) : null}
+          {template ? <MonoSm muted>{summarizeTemplate(template)}</MonoSm> : null}
           {err ? <MonoSm color={palette.alert}>{err}</MonoSm> : null}
-          <View
-            style={{
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              marginTop: spacing.sm,
-            }}
-          >
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.sm }}>
             <Button
               variant="tertiary"
               size="sm"
@@ -829,7 +526,15 @@ function TemplateDetailSheet({
 }
 
 // ───────────────────────── Clip grid card ─────────────────────────
-function ClipGridCard({ clip, classColor, className, index }: { clip: Row<'clips'>; classColor: string; className: string; index: number }) {
+function ClipGridCard({
+  clip,
+  shelfColor,
+  index,
+}: {
+  clip: Row<'clips'>;
+  shelfColor: string;
+  index: number;
+}) {
   const router = useRouter();
   const durationLabel = (() => {
     const sec = Math.max(0, Math.round(clip.duration_s ?? 0));
@@ -838,6 +543,35 @@ function ClipGridCard({ clip, classColor, className, index }: { clip: Row<'clips
     return `${m}:${r.toString().padStart(2, '0')}`;
   })();
   const tint = clip.thumbnail_color ?? palette.tealDeep;
+
+  // Sign a short-lived URL for the thumbnail artifact, same pattern as mobile.
+  const thumbKey =
+    typeof (clip.artifacts as any)?.thumbnail === 'string'
+      ? ((clip.artifacts as any).thumbnail as string)
+      : null;
+  const [thumbUrl, setThumbUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!thumbKey) {
+      setThumbUrl(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data, error } = await supabase.storage
+          .from(STORAGE_BUCKET)
+          .createSignedUrl(thumbKey, 3600);
+        if (cancelled) return;
+        if (!error && data?.signedUrl) setThumbUrl(data.signedUrl);
+      } catch {
+        /* swallow — gradient fallback stays visible */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [thumbKey]);
+
   return (
     <Animated.View entering={ENTER.fadeUp(stagger(index, 60, 40))} style={{ width: 220 }}>
       <Pressable
@@ -855,34 +589,50 @@ function ClipGridCard({ clip, classColor, className, index }: { clip: Row<'clips
             borderRadius: radii.xl,
             overflow: 'hidden',
             borderWidth: 1,
-            borderColor: classColor + '55',
+            borderColor: shelfColor + '55',
           }}
         >
+          {/* Base tint — shows until the image loads or if the clip has no
+              thumbnail artifact. */}
           <LinearGradient
-            colors={[tint, classColor + '33', palette.ink]}
+            colors={[tint, shelfColor + '33', palette.ink]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={StyleSheet.absoluteFillObject}
           />
-          <View style={{ position: 'absolute', top: 30, left: 20, opacity: 0.22 }}>
-            <Shards size={120} phase="assembled" color={classColor} />
-          </View>
+          {thumbUrl ? (
+            <Image
+              source={{ uri: thumbUrl }}
+              style={StyleSheet.absoluteFillObject}
+              resizeMode="cover"
+            />
+          ) : (
+            <>
+              <View style={{ position: 'absolute', top: 30, left: 20, opacity: 0.22 }}>
+                <Shards size={120} phase="assembled" color={shelfColor} />
+              </View>
+              <View style={{ position: 'absolute', top: 10, right: 10 }}>
+                <StyleDNA variant="icon" size={32} showLabels={false} color={shelfColor} />
+              </View>
+            </>
+          )}
           <LinearGradient
             colors={['transparent', 'rgba(4,20,30,0.9)']}
             locations={[0.4, 1]}
             style={StyleSheet.absoluteFillObject}
             pointerEvents="none"
           />
-          <View style={{ position: 'absolute', top: 10, right: 10 }}>
-            <StyleDNA variant="icon" size={32} showLabels={false} color={classColor} />
-          </View>
           <View style={{ position: 'absolute', left: 14, right: 14, bottom: 14 }}>
             <TitleSm color={palette.mist} numberOfLines={2}>
               {clip.title}
             </TitleSm>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
-              <MonoSm color={palette.fog} style={{ opacity: 0.8 }}>{clip.source_creator ?? '@source'}</MonoSm>
-              <MonoSm color={palette.fog} style={{ opacity: 0.55 }}>{durationLabel}</MonoSm>
+              <MonoSm color={palette.fog} style={{ opacity: 0.8 }}>
+                {clip.source_creator ?? '@source'}
+              </MonoSm>
+              <MonoSm color={palette.fog} style={{ opacity: 0.55 }}>
+                {durationLabel}
+              </MonoSm>
             </View>
           </View>
         </View>
@@ -891,126 +641,496 @@ function ClipGridCard({ clip, classColor, className, index }: { clip: Row<'clips
   );
 }
 
+// ───────────────────────── Loading / empty states ─────────────────────────
+function LoadingCard({ compact = false }: { compact?: boolean }) {
+  const { colors } = useAppTheme();
+  return (
+    <View
+      style={{
+        alignItems: 'center',
+        paddingVertical: compact ? spacing.xl : spacing['4xl'],
+      }}
+    >
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: spacing.sm,
+          paddingHorizontal: spacing.lg,
+          paddingVertical: spacing.md,
+          borderRadius: radii.xl,
+          borderWidth: 1,
+          borderColor: colors.border as string,
+          backgroundColor: colors.card as string,
+        }}
+      >
+        <Feather name="loader" size={14} color={colors.mutedText as string} />
+        <MonoSm muted>Loading…</MonoSm>
+      </View>
+    </View>
+  );
+}
+
+function EmptyCard({
+  icon,
+  overline,
+  title,
+  body,
+  cta,
+  onCta,
+}: {
+  icon: keyof typeof Feather.glyphMap;
+  overline: string;
+  title: string;
+  body: string;
+  cta?: string;
+  onCta?: () => void;
+}) {
+  const { colors } = useAppTheme();
+  return (
+    <View style={{ alignItems: 'center', paddingVertical: spacing['4xl'] }}>
+      <Surface padded={spacing['3xl']} radius="xl" bordered style={{ maxWidth: 560, alignItems: 'flex-start', gap: spacing.md }}>
+        <View
+          style={{
+            width: 48,
+            height: 48,
+            borderRadius: 24,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: colors.elevated as string,
+            borderWidth: 1,
+            borderColor: colors.border as string,
+          }}
+        >
+          <Feather name={icon} size={20} color={colors.primary as string} />
+        </View>
+        <Overline muted>{overline}</Overline>
+        <Title>{title}</Title>
+        <BodySm muted>{body}</BodySm>
+        {cta && onCta ? (
+          <Pressable
+            onPress={onCta}
+            style={({ hovered, pressed }: any) => ({
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 6,
+              height: 40,
+              paddingHorizontal: 16,
+              borderRadius: radii.sm,
+              marginTop: spacing.sm,
+              backgroundColor: pressed || hovered ? (colors.primary as string) : (colors.primary as string) + 'DD',
+            })}
+          >
+            <Feather name="plus" size={14} color={colors.onPrimary as string} />
+            <Text variant="bodySm" weight="semibold" color={colors.onPrimary as string}>
+              {cta}
+            </Text>
+          </Pressable>
+        ) : null}
+      </Surface>
+    </View>
+  );
+}
+
+// ───────────────────────── Disc header ─────────────────────────
+function DiscHeader({
+  shelf,
+  disc,
+  clipCount,
+  onNewClip,
+  onOpenTemplates,
+  onDeleteDisc,
+}: {
+  shelf: ClassWithCounts;
+  disc: TopicWithClipCount;
+  clipCount: number;
+  onNewClip: () => void;
+  onOpenTemplates: () => void;
+  onDeleteDisc: () => void;
+}) {
+  const { colors } = useAppTheme();
+  const progressPct = Math.round((disc.progress ?? 0) * 100);
+  return (
+    <View
+      style={{
+        paddingVertical: spacing.xl,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border as string,
+        gap: spacing.md,
+      }}
+    >
+      <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: spacing.lg }}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Overline color={shelf.color_hex}>DISC</Overline>
+          <Title style={{ marginTop: 4 }} numberOfLines={2}>
+            {disc.name}
+          </Title>
+          {disc.description ? (
+            <BodySm italic family="serif" muted style={{ marginTop: 4, maxWidth: 640 }}>
+              {disc.description}
+            </BodySm>
+          ) : null}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.lg, marginTop: spacing.sm }}>
+            <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6 }}>
+              <Mono>{clipCount}</Mono>
+              <MonoSm muted>clips</MonoSm>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6 }}>
+              <Mono color={palette.gold}>{progressPct}%</Mono>
+              <MonoSm muted>studied</MonoSm>
+            </View>
+            <MonoSm muted>{formatRelative(disc.last_studied_at) || 'new'}</MonoSm>
+          </View>
+        </View>
+        <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
+          <Pressable
+            onPress={onOpenTemplates}
+            style={({ hovered, pressed }: any) => ({
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 6,
+              height: 34,
+              paddingHorizontal: 12,
+              borderRadius: radii.sm,
+              borderWidth: 1,
+              borderColor: (colors.primary as string) + (hovered || pressed ? 'AA' : '66'),
+              backgroundColor: hovered || pressed ? (colors.primary as string) + '22' : (colors.primary as string) + '14',
+              transitionProperty: 'background-color, border-color' as any,
+              transitionDuration: '140ms' as any,
+            })}
+          >
+            <Feather name="layers" size={13} color={colors.primary as string} />
+            <Text variant="bodySm" weight="bold" color={colors.primary as string}>
+              Templates
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={onNewClip}
+            style={({ hovered, pressed }: any) => ({
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 6,
+              height: 34,
+              paddingHorizontal: 12,
+              borderRadius: radii.sm,
+              backgroundColor: pressed || hovered ? (colors.primary as string) : (colors.primary as string) + 'DD',
+            })}
+          >
+            <Feather name="plus" size={13} color={colors.onPrimary as string} />
+            <Text variant="bodySm" weight="semibold" color={colors.onPrimary as string}>
+              New clip
+            </Text>
+          </Pressable>
+          <IconButton
+            variant="ghost"
+            size={34}
+            onPress={onDeleteDisc}
+            accessibilityLabel={`Delete disc ${disc.name}`}
+          >
+            <Feather name="trash-2" size={13} color={palette.alert} />
+          </IconButton>
+        </View>
+      </View>
+      {/* Progress bar */}
+      <View
+        style={{
+          height: 3,
+          borderRadius: 2,
+          overflow: 'hidden',
+          backgroundColor: (colors.border as string),
+        }}
+      >
+        <View
+          style={{
+            width: `${progressPct}%`,
+            height: '100%',
+            backgroundColor: shelf.color_hex,
+          }}
+        />
+      </View>
+    </View>
+  );
+}
+
 // ───────────────────────── Library (web) ─────────────────────────
 export default function LibraryWebScreen() {
   const router = useRouter();
   const { colors } = useAppTheme();
   useWindowDimensions();
-  const [sort, setSort] = useState<Sort>('recent');
-  const [newCourseOpen, setNewCourseOpen] = useState(false);
-  const [templatesOpen, setTemplatesOpen] = useState(false);
-  const { activeCourseId, setActiveCourseId } = useActiveCourse();
+  const { activeShelfId, setActiveShelfId } = useActiveShelf();
+  const { activeDiscId, setActiveDiscId } = useActiveDisc();
+
   const params = useLocalSearchParams<{
     new?: string;
+    newDisc?: string;
+    shelf?: string;
     tab?: string;
-    course?: string;
   }>();
 
-  const { data: classes, refresh: refreshClasses } = useClasses();
-  const { data: stats } = useProfileStats();
-  const classList = classes ?? [];
+  const [newShelfOpen, setNewShelfOpen] = useState(false);
+  const [newDiscOpen, setNewDiscOpen] = useState(false);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
 
-  const confirmDeleteClass = (cls: ClassWithCounts) => {
-    const msg = `Delete "${cls.name}"?\n\nThis removes ${cls.topic_count} topic${cls.topic_count === 1 ? '' : 's'} and ${cls.clip_count} clip${cls.clip_count === 1 ? '' : 's'}. Templates filed here become unfiled. Can't undo.`;
-    // eslint-disable-next-line no-alert
+  const { data: classes, loading: shelvesLoading, refresh: refreshShelves } = useClasses();
+  const { data: topics, loading: discsLoading, refresh: refreshDiscs } = useTopicsForClass(
+    activeShelfId ?? undefined,
+  );
+  const { data: clips, loading: clipsLoading } = useClipsForTopic(activeDiscId ?? undefined);
+
+  // Distinguish "still fetching" from "confirmed empty". Until the query
+  // resolves (data !== null), we must not show a "you have nothing" CTA —
+  // that would flash misleading empty-state copy on refresh.
+  const shelvesHydrated = classes !== null && !shelvesLoading;
+  const discsHydrated = topics !== null && !discsLoading;
+  const clipsHydrated = clips !== null && !clipsLoading;
+
+  const shelfList = useMemo(() => classes ?? [], [classes]);
+  const discList = useMemo<TopicWithClipCount[]>(
+    () => (topics ?? []).filter((t) => (t as any).class_id === activeShelfId),
+    [topics, activeShelfId],
+  );
+  const clipList = clips ?? [];
+
+  const activeShelf = useMemo(
+    () => shelfList.find((c) => c.id === activeShelfId) ?? null,
+    [shelfList, activeShelfId],
+  );
+  const activeDisc = useMemo(
+    () => discList.find((t) => t.id === activeDiscId) ?? null,
+    [discList, activeDiscId],
+  );
+  const shelfColor = activeShelf?.color_hex ?? palette.sage;
+
+  // Handle deep-link params from TopBar switchers and Create flow.
+  useEffect(() => {
+    let consumed = false;
+    if (params.new === '1') {
+      setNewShelfOpen(true);
+      consumed = true;
+    }
+    if (params.newDisc === '1') {
+      if (params.shelf) setActiveShelfId(params.shelf);
+      setNewDiscOpen(true);
+      consumed = true;
+    }
+    if (params.tab === 'templates') {
+      setTemplatesOpen(true);
+      consumed = true;
+    }
+    if (consumed) {
+      router.replace('/(tabs)/library' as any);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.new, params.newDisc, params.shelf, params.tab]);
+
+  const onDeleteShelf = () => {
+    if (!activeShelf) return;
+    const msg = `Delete "${activeShelf.name}"?\n\nThis removes ${activeShelf.topic_count} disc${activeShelf.topic_count === 1 ? '' : 's'} and ${activeShelf.clip_count} clip${activeShelf.clip_count === 1 ? '' : 's'}. Templates filed here become unfiled. Can't undo.`;
     if (!window.confirm(msg)) return;
-    deleteClass(cls.id)
+    deleteClass(activeShelf.id)
       .then(() => {
-        if (activeCourseId === cls.id) setActiveCourseId(null);
-        refreshClasses();
+        setActiveShelfId(null);
+        setActiveDiscId(null);
+        refreshShelves();
       })
       .catch((err) => {
-        // eslint-disable-next-line no-alert
-        window.alert(
-          `Couldn't delete course: ${err instanceof Error ? err.message : String(err)}`,
-        );
+        window.alert(`Couldn't delete shelf: ${err instanceof Error ? err.message : String(err)}`);
       });
   };
 
-  useEffect(() => {
-    if (params.new === '1') {
-      setNewCourseOpen(true);
-      router.replace('/(tabs)/library' as any);
-      return;
-    }
-    const tabParam = params.tab as string | undefined;
-    const courseParam = params.course as string | undefined;
-    if (!tabParam && !courseParam) return;
-    if (classList.length === 0) return;
-    if (courseParam && classList.find((c) => c.id === courseParam)) {
-      setActiveCourseId(courseParam);
-    }
-    if (tabParam === 'templates') {
-      setTemplatesOpen(true);
-    }
-    router.replace('/(tabs)/library' as any);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params.new, params.tab, params.course, classList.length]);
-
-  const sorted = useMemo(() => {
-    const list = [...classList];
-    if (sort === 'recent') {
-      list.sort((a, b) => {
-        const at = a.last_active_at ? new Date(a.last_active_at).getTime() : 0;
-        const bt = b.last_active_at ? new Date(b.last_active_at).getTime() : 0;
-        return bt - at;
+  const onDeleteDisc = () => {
+    if (!activeDisc) return;
+    const msg = `Delete disc "${activeDisc.name}"?\n\nThis removes ${activeDisc.clip_count} clip${activeDisc.clip_count === 1 ? '' : 's'} inside it. Can't undo.`;
+    if (!window.confirm(msg)) return;
+    deleteTopic(activeDisc.id)
+      .then(() => {
+        setActiveDiscId(null);
+        refreshDiscs();
+        refreshShelves();
+      })
+      .catch((err) => {
+        window.alert(`Couldn't delete disc: ${err instanceof Error ? err.message : String(err)}`);
       });
-    } else if (sort === 'alpha') {
-      list.sort((a, b) => a.name.localeCompare(b.name));
-    } else {
-      list.sort((a, b) => b.clip_count - a.clip_count);
-    }
-    return list;
-  }, [sort, classList]);
+  };
 
-  const activeClass = activeCourseId ? classList.find((c) => c.id === activeCourseId) : null;
+  const gotoCreate = () => router.push('/(tabs)/create' as any);
+
+  // ─── Render branches ───
+  const body = (() => {
+    // Haven't confirmed whether the user has shelves yet — hold off on any
+    // empty-state CTA so we don't flash "Start your first shelf" to a user
+    // who in fact has a full library.
+    if (!shelvesHydrated) {
+      return <LoadingCard />;
+    }
+    // Confirmed no shelves → empty library.
+    if (shelfList.length === 0) {
+      return (
+        <EmptyCard
+          icon="book-open"
+          overline="YOUR LIBRARY IS EMPTY"
+          title="Start your first shelf."
+          body="Shelves hold discs, and discs hold clips. Create one to start — then add clips by analyzing reels in Create."
+          cta="Create your first shelf"
+          onCta={() => setNewShelfOpen(true)}
+        />
+      );
+    }
+    // Shelves exist but the TopBar's auto-pick hasn't landed yet, or the user
+    // explicitly cleared it. Show a neutral "pick" nudge.
+    if (!activeShelf) {
+      return (
+        <EmptyCard
+          icon="arrow-up"
+          overline="PICK A SHELF"
+          title="Select a shelf up top."
+          body="Use the shelf pill in the top bar to jump into one of your shelves."
+        />
+      );
+    }
+    // Discs for the active shelf haven't hydrated yet.
+    if (!discsHydrated) {
+      return <LoadingCard />;
+    }
+    // Confirmed shelf has no discs.
+    if (discList.length === 0) {
+      return (
+        <EmptyCard
+          icon="disc"
+          overline={`SHELF · ${activeShelf.name.toUpperCase()}`}
+          title="No discs in this shelf yet."
+          body="Discs group clips by topic. Create one to start filling it with clips."
+          cta="Create a disc"
+          onCta={() => setNewDiscOpen(true)}
+        />
+      );
+    }
+    // Discs exist but none is active yet.
+    if (!activeDisc) {
+      return (
+        <EmptyCard
+          icon="arrow-up"
+          overline="PICK A DISC"
+          title="Select a disc up top."
+          body="Use the disc pill in the top bar to open one of your discs."
+        />
+      );
+    }
+    // Full view: disc header + clips grid.
+    return (
+      <View style={{ gap: spacing.xl }}>
+        <DiscHeader
+          shelf={activeShelf}
+          disc={activeDisc}
+          clipCount={clipList.length}
+          onNewClip={gotoCreate}
+          onOpenTemplates={() => setTemplatesOpen(true)}
+          onDeleteDisc={onDeleteDisc}
+        />
+        {!clipsHydrated ? (
+          <LoadingCard compact />
+        ) : clipList.length === 0 ? (
+          <EmptyCard
+            icon="film"
+            overline="EMPTY DISC"
+            title="No clips here yet."
+            body="Clips are what you study — short reels broken down into their ideas. Spin one up from Create."
+            cta="Create a clip"
+            onCta={gotoCreate}
+          />
+        ) : (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.lg }}>
+            {clipList.map((c, i) => (
+              <ClipGridCard key={c.id} clip={c} shelfColor={shelfColor} index={i} />
+            ))}
+          </View>
+        )}
+      </View>
+    );
+  })();
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background as string }}>
-      <PageHeader
-        sort={sort}
-        setSort={setSort}
-        courseCount={classList.length}
-        counts={{ topic: stats?.topicCount ?? 0, clip: stats?.clipCount ?? 0 }}
-        onNewCourse={() => setNewCourseOpen(true)}
-        onOpenTemplates={() => setTemplatesOpen(true)}
-      />
+      {/* Optional shelf action strip — only when a shelf is active. Shelf
+          identity already lives in the TopBar, so this row is just actions. */}
+      {activeShelf ? (
+        <View
+          style={{
+            paddingVertical: spacing.md,
+            paddingHorizontal: spacing['2xl'],
+            borderBottomWidth: 1,
+            borderBottomColor: colors.border as string,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: spacing.md,
+          }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minWidth: 0, flex: 1 }}>
+            <View style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: shelfColor }} />
+            <Overline numberOfLines={1}>
+              SHELF · {activeShelf.topic_count} discs · {activeShelf.clip_count} clips
+            </Overline>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+            <Pressable
+              onPress={() => setNewDiscOpen(true)}
+              style={({ hovered, pressed }: any) => ({
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 6,
+                height: 30,
+                paddingHorizontal: 12,
+                borderRadius: radii.sm,
+                borderWidth: 1,
+                borderColor: (colors.border as string),
+                backgroundColor: hovered || pressed ? (colors.elevated as string) : 'transparent',
+                transitionProperty: 'background-color' as any,
+                transitionDuration: '140ms' as any,
+              })}
+            >
+              <Feather name="plus" size={12} color={colors.text as string} />
+              <Text variant="bodySm" weight="medium" color={colors.text as string}>
+                New disc
+              </Text>
+            </Pressable>
+            <IconButton variant="ghost" size={30} onPress={onDeleteShelf} accessibilityLabel="Delete shelf">
+              <Feather name="trash-2" size={12} color={palette.alert} />
+            </IconButton>
+          </View>
+        </View>
+      ) : null}
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ padding: spacing['2xl'], paddingBottom: spacing['5xl'] }}
       >
-        {activeClass ? (
-          <ClassDetailView
-            cls={activeClass}
-            onClose={() => setActiveCourseId(null)}
-          />
-        ) : classList.length === 0 ? (
-          <LibraryEmptyState onNewCourse={() => setNewCourseOpen(true)} />
-        ) : (
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xl }}>
-            {sorted.map((cls, i) => (
-              <ClassCardLarge
-                key={cls.id}
-                cls={cls}
-                index={i}
-                onPress={() => setActiveCourseId(cls.id)}
-                onDelete={() => confirmDeleteClass(cls)}
-              />
-            ))}
-          </View>
-        )}
+        {body}
       </ScrollView>
-      <NewCourseModal
-        open={newCourseOpen}
-        onClose={() => setNewCourseOpen(false)}
+      <NewShelfModal
+        open={newShelfOpen}
+        onClose={() => setNewShelfOpen(false)}
         onCreated={(id) => {
-          setNewCourseOpen(false);
-          setActiveCourseId(id);
+          setNewShelfOpen(false);
+          setActiveShelfId(id);
+          setActiveDiscId(null);
+          refreshShelves();
+        }}
+      />
+      <NewDiscModal
+        open={newDiscOpen}
+        shelfId={activeShelfId}
+        onClose={() => setNewDiscOpen(false)}
+        onCreated={(id) => {
+          setNewDiscOpen(false);
+          setActiveDiscId(id);
+          refreshDiscs();
+          refreshShelves();
         }}
       />
       <WebTemplatesSheet
         open={templatesOpen}
         onClose={() => setTemplatesOpen(false)}
+        shelfColor={shelfColor}
       />
     </View>
   );

@@ -618,12 +618,13 @@ function SwitcherPopover({
 // ─────────────────────────  shelf switcher  ─────────────────────────
 function ShelfSwitcher() {
   const router = useRouter();
-  const { data: classes } = useClasses();
+  const { data: classes, loading } = useClasses();
   const { activeShelfId, setActiveShelfId } = useActiveShelf();
   const { setActiveDiscId } = useActiveDisc();
   const [open, setOpen] = useState(false);
 
   const list = classes ?? [];
+  const hydrated = classes !== null && !loading;
   const current = useMemo(
     () => list.find((c) => c.id === activeShelfId) ?? null,
     [list, activeShelfId],
@@ -641,7 +642,7 @@ function ShelfSwitcher() {
     id: c.id,
     name: c.name,
     color: c.color_hex,
-    hint: `${c.clip_count} lessons · ${c.topic_count} discs`,
+    hint: `${c.clip_count} clips · ${c.topic_count} discs`,
   }));
 
   const pick = (id: string) => {
@@ -649,11 +650,15 @@ function ShelfSwitcher() {
     setActiveDiscId(null); // reset disc when shelf changes
   };
 
+  // Don't flash "No shelves" while the initial fetch is in flight — it
+  // makes users with full libraries think their data is gone.
+  const label = current?.name ?? (hydrated ? "No shelves" : "Loading…");
+
   return (
     <View>
       <SwitcherPill
         colorDot={current?.color_hex ?? palette.sage}
-        label={current?.name ?? "No shelves"}
+        label={label}
         placeholder={!current}
         open={open}
         onPress={() => setOpen((v) => !v)}
@@ -680,7 +685,7 @@ function DiscSwitcher() {
   const router = useRouter();
   const { activeShelfId } = useActiveShelf();
   const { activeDiscId, setActiveDiscId } = useActiveDisc();
-  const { data: topics } = useTopicsForClass(activeShelfId ?? undefined);
+  const { data: topics, loading } = useTopicsForClass(activeShelfId ?? undefined);
   const [open, setOpen] = useState(false);
 
   // Filter out stale topics left over from a previous shelf: useAsync keeps
@@ -693,6 +698,7 @@ function DiscSwitcher() {
       ),
     [topics, activeShelfId],
   );
+  const hydrated = topics !== null && !loading;
 
   const current = useMemo(
     () => list.find((t) => t.id === activeDiscId) ?? null,
@@ -714,7 +720,7 @@ function DiscSwitcher() {
     id: t.id,
     name: t.name,
     color: (t as any).color_hex ?? palette.teal,
-    hint: `${t.clip_count} lessons`,
+    hint: `${t.clip_count} clips`,
   }));
 
   if (!activeShelfId) {
@@ -729,11 +735,19 @@ function DiscSwitcher() {
     );
   }
 
+  const label =
+    current?.name ??
+    (!hydrated
+      ? "Loading…"
+      : list.length === 0
+      ? "No discs"
+      : "Select a disc");
+
   return (
     <View>
       <SwitcherPill
         colorDot={(current as any)?.color_hex ?? palette.teal}
-        label={current?.name ?? (list.length === 0 ? "No discs" : "Select a disc")}
+        label={label}
         placeholder={!current}
         open={open}
         onPress={() => setOpen((v) => !v)}
