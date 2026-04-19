@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   ScrollView,
@@ -17,21 +17,24 @@ import { Button } from '@/components/ui/Button';
 import { IconButton } from '@/components/ui/IconButton';
 import { Chip } from '@/components/ui/Chip';
 import { Title, TitleSm, Body, BodySm, Mono, MonoSm, Overline, Headline, Text } from '@/components/ui/Text';
-import { Noctis } from '@/components/brand/Noctis';
 import { Shards } from '@/components/brand/Shards';
-import { StyleDNA } from '@/components/brand/StyleDNA';
 import { Waveform } from '@/components/brand/Waveform';
 import { palette, spacing, radii } from '@/constants/tokens';
 import { ENTER, stagger } from '@/components/ui/motion';
 import { useAppTheme } from '@/contexts/ThemeContext';
 import { useClip, useFeed } from '@/data/hooks';
+import { updateClip } from '@/data/mutations';
 import { DEFAULT_DNA, type DNAToken } from '@/components/brand/StyleDNA';
 import {
   creatorSummaryFromStyle,
   dnaTokensFromStyle,
   transcriptFromStyle,
 } from '@/lib/format';
+import { supabase } from '@/lib/supabase';
+import { getJobArtifact } from '@/services/api';
 import type { Row } from '@/types/supabase';
+
+const STORAGE_BUCKET = process.env.EXPO_PUBLIC_SUPABASE_BUCKET ?? 'reelize-artifacts';
 
 // View-model for the web player — mirrors the native one.
 interface Clip {
@@ -45,6 +48,7 @@ interface Clip {
   durationMs: number;
   cutPoints: number[];
   tokens: DNAToken[];
+  note: string;
   creator: {
     handle: string;
     avgCutsPerMin: number;
@@ -90,6 +94,7 @@ function clipFromRow(row: Row<'clips'>): Clip {
     durationMs: Math.max(1, Math.round((row.duration_s ?? 30) * 1000)),
     cutPoints: cuts,
     tokens,
+    note: row.note ?? '',
     creator,
     transcript,
   };
@@ -133,13 +138,10 @@ function TopBar({ clip }: { clip: Clip }) {
   );
 }
 
-// ───────────────────────── Left sidebar: transcript + notes + highlights ─────────────────────────
+// ───────────────────────── Left sidebar: transcript ─────────────────────────
 function LeftSidebar({ clip }: { clip: Clip }) {
-  const { colors } = useAppTheme();
-  const [note, setNote] = useState('');
   return (
     <View style={{ width: 320, gap: spacing.xl }}>
-      {/* Transcript */}
       <Surface padded={spacing.xl} radius="xl">
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md }}>
           <Overline muted>Transcript</Overline>
@@ -165,52 +167,72 @@ function LeftSidebar({ clip }: { clip: Clip }) {
           ))}
         </View>
       </Surface>
-
-      {/* Notes */}
-      <Surface padded={spacing.xl} radius="xl">
-        <Overline muted style={{ marginBottom: spacing.md }}>Notes</Overline>
-        <TextInput
-          multiline
-          placeholder="What stuck? Write a sentence."
-          placeholderTextColor={(colors.mutedText as string) + 'CC'}
-          value={note}
-          onChangeText={setNote}
-          style={{
-            minHeight: 80,
-            color: colors.text as string,
-            fontFamily: 'Fraunces_400Regular',
-            fontSize: 15,
-            lineHeight: 22,
-            outlineStyle: 'none' as any,
-          }}
-        />
-      </Surface>
-
-      {/* Highlights */}
-      <Surface padded={spacing.xl} radius="xl">
-        <Overline muted style={{ marginBottom: spacing.md }}>Highlights</Overline>
-        <View style={{ gap: spacing.md }}>
-          {[
-            { t: '0:09', text: 'Citrate forms. Six carbons. The wheel starts turning.' },
-            { t: '0:25', text: 'Eight steps. One loop. Infinite energy.' },
-          ].map((h, i) => (
-            <View key={i} style={{ flexDirection: 'row', gap: spacing.sm }}>
-              <Mono color={palette.gold} style={{ minWidth: 36 }}>{h.t}</Mono>
-              <BodySm italic family="serif" style={{ flex: 1 }}>
-                &ldquo;{h.text}&rdquo;
-              </BodySm>
-            </View>
-          ))}
-        </View>
-      </Surface>
     </View>
   );
 }
 
 // ───────────────────────── Center player ─────────────────────────
-function CenterPlayer({ clip }: { clip: Clip }) {
+function CenterPlayer({
+  clip,
+  videoUrl,
+  thumbUrl,
+  videoError,
+  onRetry,
+}: {
+  clip: Clip;
+  videoUrl: string | null;
+  thumbUrl: string | null;
+  videoError: string | null;
+  onRetry: () => void;
+}) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const [playing, setPlaying] = useState(false);
-  const progress = 0.32;
+  const [currentS, setCurrentS] = useState(0);
+  const [durationS, setDurationS] = useState(clip.durationMs / 1000);
+
+  const togglePlay = useCallback(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (v.paused) {
+      v.play().catch(() => {
+        /* user gesture may be required; swallow */
+      });
+    } else {
+      v.pause();
+    }
+  }, []);
+
+  // Reset local state when the video source changes.
+  useEffect(() => {
+    setCurrentS(0);
+    setPlaying(false);
+    setDurationS(clip.durationMs / 1000);
+  }, [videoUrl, clip.durationMs]);
+
+  const progress = durationS > 0 ? Math.min(1, currentS / durationS) : 0;
+
+  const onScrubberPress = useCallback(
+    (e: any) => {
+      const v = videoRef.current;
+      const dur = v?.duration ?? durationS;
+      if (!v || !isFinite(dur) || dur <= 0) return;
+      const nativeEvent = e?.nativeEvent ?? e;
+      const targetRect =
+        nativeEvent?.currentTarget?.getBoundingClientRect?.() ??
+        (e?.currentTarget as any)?.getBoundingClientRect?.();
+      const offsetX =
+        typeof nativeEvent?.offsetX === 'number'
+          ? nativeEvent.offsetX
+          : targetRect
+          ? (nativeEvent.clientX ?? 0) - targetRect.left
+          : 0;
+      const width = targetRect?.width ?? 340;
+      const pct = Math.max(0, Math.min(1, offsetX / Math.max(1, width)));
+      v.currentTime = pct * dur;
+      setCurrentS(v.currentTime);
+    },
+    [durationS],
+  );
 
   return (
     <View style={{ flex: 1, alignItems: 'center', justifyContent: 'flex-start', gap: spacing.xl, minWidth: 360 }}>
@@ -227,62 +249,110 @@ function CenterPlayer({ clip }: { clip: Clip }) {
           position: 'relative',
         }}
       >
+        {/* Fallback gradient shown until the video paints its first frame */}
         <LinearGradient
           colors={[palette.inkDeep, clip.thumbnailColor, palette.ink]}
           start={{ x: 0.1, y: 0 }}
           end={{ x: 0.9, y: 1 }}
           style={StyleSheet.absoluteFillObject}
         />
-        <View style={{ position: 'absolute', top: 60, left: 30, opacity: 0.22 }}>
-          <Shards size={260} phase="assembled" color={clip.classColor} />
-        </View>
+        {videoUrl ? (
+          <video
+            ref={videoRef}
+            src={videoUrl}
+            poster={thumbUrl ?? undefined}
+            playsInline
+            controls={false}
+            preload="metadata"
+            onClick={togglePlay}
+            onPlay={() => setPlaying(true)}
+            onPause={() => setPlaying(false)}
+            onTimeUpdate={(e) => setCurrentS((e.target as HTMLVideoElement).currentTime)}
+            onLoadedMetadata={(e) => {
+              const d = (e.target as HTMLVideoElement).duration;
+              if (isFinite(d) && d > 0) setDurationS(d);
+            }}
+            onEnded={() => setPlaying(false)}
+            style={{
+              position: 'absolute',
+              inset: 0,
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              backgroundColor: 'black',
+              cursor: 'pointer',
+            } as any}
+          />
+        ) : (
+          <View style={{ position: 'absolute', top: 60, left: 30, opacity: 0.22 }}>
+            <Shards size={260} phase="assembled" color={clip.classColor} />
+          </View>
+        )}
         <LinearGradient
           colors={['rgba(4,20,30,0.3)', 'transparent', 'rgba(4,20,30,0.75)']}
           style={StyleSheet.absoluteFillObject}
           pointerEvents="none"
         />
-        {/* Center play */}
-        <Pressable
-          onPress={() => setPlaying((p) => !p)}
-          style={({ hovered }: any) => ({
-            ...StyleSheet.absoluteFillObject,
-            alignItems: 'center',
-            justifyContent: 'center',
-            opacity: hovered ? 1 : 0.75,
-          })}
-        >
-          <View
-            style={{
-              width: 64,
-              height: 64,
-              borderRadius: 32,
-              backgroundColor: 'rgba(4,20,30,0.6)',
-              borderWidth: 1,
-              borderColor: 'rgba(255,255,255,0.25)',
+        {/* Center play overlay — only visible when paused */}
+        {!playing && (
+          <Pressable
+            onPress={togglePlay}
+            style={({ hovered }: any) => ({
+              ...StyleSheet.absoluteFillObject,
               alignItems: 'center',
               justifyContent: 'center',
+              opacity: hovered ? 1 : 0.85,
+            })}
+          >
+            <View
+              style={{
+                width: 64,
+                height: 64,
+                borderRadius: 32,
+                backgroundColor: 'rgba(4,20,30,0.6)',
+                borderWidth: 1,
+                borderColor: 'rgba(255,255,255,0.25)',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Feather name="play" size={22} color={palette.mist} />
+            </View>
+          </Pressable>
+        )}
+        {/* Error banner */}
+        {!videoUrl && videoError && (
+          <View
+            style={{
+              position: 'absolute',
+              left: 16,
+              right: 16,
+              bottom: 16,
+              padding: spacing.md,
+              borderRadius: radii.md,
+              backgroundColor: 'rgba(4,20,30,0.75)',
+              borderWidth: 1,
+              borderColor: 'rgba(255,255,255,0.12)',
+              gap: spacing.sm,
             }}
           >
-            <Feather name={playing ? 'pause' : 'play'} size={22} color={palette.mist} />
+            <MonoSm color={palette.mist}>{videoError}</MonoSm>
+            <Pressable onPress={onRetry}>
+              <MonoSm color={palette.gold}>Retry</MonoSm>
+            </Pressable>
           </View>
-        </Pressable>
-        {/* Caption sample */}
-        <View style={{ position: 'absolute', left: 20, right: 20, bottom: 40 }}>
-          <Text variant="title" family="serif" weight="bold" color={palette.mist} style={{ textAlign: 'center' }}>
-            citrate forms.
-          </Text>
-        </View>
+        )}
         {/* Counter */}
-        <View style={{ position: 'absolute', top: 16, left: 16 }}>
+        <View style={{ position: 'absolute', top: 16, left: 16 }} pointerEvents="none">
           <View style={{ backgroundColor: 'rgba(4,20,30,0.55)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: radii.pill, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' }}>
-            <MonoSm color={palette.fog}>0:09 / {(clip.durationMs / 1000).toFixed(0)}s</MonoSm>
+            <MonoSm color={palette.fog}>{fmtTime(currentS)} / {fmtTime(durationS)}</MonoSm>
           </View>
         </View>
       </View>
 
       {/* Scrubber */}
       <View style={{ width: 340, gap: spacing.md }}>
-        <View style={{ position: 'relative', height: 48 }}>
+        <Pressable onPress={onScrubberPress} style={{ position: 'relative', height: 48 }}>
           <Waveform bars={60} height={44} progress={progress} color={clip.classColor} seed={9} />
           {/* Cut ticks */}
           {clip.cutPoints.map((p, i) => (
@@ -297,6 +367,7 @@ function CenterPlayer({ clip }: { clip: Clip }) {
                 backgroundColor: palette.gold,
                 opacity: 0.55,
               }}
+              pointerEvents="none"
             />
           ))}
           {/* Playhead */}
@@ -309,23 +380,42 @@ function CenterPlayer({ clip }: { clip: Clip }) {
               width: 2,
               backgroundColor: palette.mist,
             }}
+            pointerEvents="none"
           />
-        </View>
+        </Pressable>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-          <Mono muted>0:09</Mono>
-          <Mono muted>{(clip.durationMs / 1000).toFixed(0)}s</Mono>
+          <Mono muted>{fmtTime(currentS)}</Mono>
+          <Mono muted>{fmtTime(durationS)}</Mono>
         </View>
       </View>
 
       {/* Controls */}
       <View style={{ flexDirection: 'row', gap: spacing.md, alignItems: 'center' }}>
-        <IconButton variant="filled" size={40} accessibilityLabel="Previous">
+        <IconButton
+          variant="filled"
+          size={40}
+          accessibilityLabel="Back 5s"
+          onPress={() => {
+            const v = videoRef.current;
+            if (v) v.currentTime = Math.max(0, v.currentTime - 5);
+          }}
+        >
           <Feather name="skip-back" size={16} color={palette.mist} />
         </IconButton>
-        <IconButton variant="elevated" size={52} onPress={() => setPlaying((p) => !p)} accessibilityLabel="Play">
+        <IconButton variant="elevated" size={52} onPress={togglePlay} accessibilityLabel="Play">
           <Feather name={playing ? 'pause' : 'play'} size={20} color={palette.mist} />
         </IconButton>
-        <IconButton variant="filled" size={40} accessibilityLabel="Next">
+        <IconButton
+          variant="filled"
+          size={40}
+          accessibilityLabel="Forward 5s"
+          onPress={() => {
+            const v = videoRef.current;
+            if (!v) return;
+            const dur = isFinite(v.duration) ? v.duration : durationS;
+            v.currentTime = Math.min(dur, v.currentTime + 5);
+          }}
+        >
           <Feather name="skip-forward" size={16} color={palette.mist} />
         </IconButton>
       </View>
@@ -333,25 +423,85 @@ function CenterPlayer({ clip }: { clip: Clip }) {
   );
 }
 
-// ───────────────────────── Right sidebar: StyleDNA + Source + Related ─────────────────────────
+// ───────────────────────── Right sidebar: Notes + Source + Related ─────────────────────────
+type SaveState = 'idle' | 'saving' | 'saved' | 'error';
+
 function RightSidebar({ clip }: { clip: Clip }) {
   const router = useRouter();
   const { colors } = useAppTheme();
   const { data: feedRows } = useFeed(6);
+  const [note, setNote] = useState(clip.note);
+  const [saveState, setSaveState] = useState<SaveState>('idle');
+  const lastSaved = useRef(clip.note);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // When the clip changes (e.g. navigating between clips), reset the draft.
+  // Also absorb external updates to the same clip (e.g. another device) only
+  // when the user isn't mid-edit.
+  useEffect(() => {
+    if (note === lastSaved.current) {
+      setNote(clip.note);
+    }
+    lastSaved.current = clip.note;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clip.id, clip.note]);
+
+  // Debounced save — 600ms of quiet typing writes to Supabase.
+  useEffect(() => {
+    if (note === lastSaved.current) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    setSaveState('saving');
+    saveTimer.current = setTimeout(async () => {
+      try {
+        await updateClip(clip.id, { note: note.length ? note : null });
+        lastSaved.current = note;
+        setSaveState('saved');
+      } catch (e) {
+        console.warn('[player-web] failed to save note:', e);
+        setSaveState('error');
+      }
+    }, 600);
+    return () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+    };
+  }, [note, clip.id]);
+
   const related = useMemo(
     () => (feedRows ?? []).filter((c) => c.id !== clip.id).slice(0, 4),
     [feedRows, clip.id],
   );
 
+  const saveLabel =
+    saveState === 'saving' ? 'saving…' :
+    saveState === 'saved' ? 'saved' :
+    saveState === 'error' ? 'save failed' : '';
+
   return (
     <View style={{ width: 360, gap: spacing.xl }}>
-      {/* StyleDNA full */}
-      <Surface padded={spacing.xl} radius="xl" style={{ alignItems: 'center', gap: spacing.md }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-          <Overline muted>Style DNA</Overline>
-          <MonoSm color={palette.sage}>extracted</MonoSm>
+      {/* Notes */}
+      <Surface padded={spacing.xl} radius="xl">
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md }}>
+          <Overline muted>Notes</Overline>
+          {saveLabel ? (
+            <MonoSm color={saveState === 'error' ? palette.gold : palette.sage}>{saveLabel}</MonoSm>
+          ) : null}
         </View>
-        <StyleDNA variant="full" size={280} showLabels spinning tokens={clip.tokens} color={clip.classColor} />
+        <TextInput
+          multiline
+          placeholder="What stuck? Write a sentence."
+          placeholderTextColor={(colors.mutedText as string) + 'CC'}
+          value={note}
+          onChangeText={setNote}
+          style={{
+            minHeight: 140,
+            color: colors.text as string,
+            fontFamily: 'Fraunces_400Regular',
+            fontSize: 15,
+            lineHeight: 22,
+            outlineStyle: 'none' as any,
+            textAlignVertical: 'top' as any,
+          }}
+        />
       </Surface>
 
       {/* Source */}
@@ -457,6 +607,96 @@ export default function PlayerWebScreen() {
   const clip = useMemo(() => (row ? clipFromRow(row) : null), [row]);
   const { colors } = useAppTheme();
 
+  // Resolve signed URLs for the rendered mp4 + poster. Mirrors the native
+  // player: try a Supabase client-side sign first, fall back to the backend
+  // /jobs/{id}/artifacts endpoint if RLS blocks it.
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [thumbUrl, setThumbUrl] = useState<string | null>(null);
+  const [videoError, setVideoError] = useState<string | null>(null);
+  const [fetchTick, setFetchTick] = useState(0);
+
+  const videoStorageKey =
+    typeof (row as any)?.artifacts?.video === 'string'
+      ? ((row as any).artifacts.video as string)
+      : null;
+  const videoJobId = row?.generation_job_id ?? row?.job_id ?? null;
+  const thumbStorageKey =
+    typeof (row as any)?.artifacts?.thumbnail === 'string'
+      ? ((row as any).artifacts.thumbnail as string)
+      : null;
+
+  useEffect(() => {
+    if (!thumbStorageKey) {
+      setThumbUrl(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data, error } = await supabase.storage
+          .from(STORAGE_BUCKET)
+          .createSignedUrl(thumbStorageKey, 3600);
+        if (!cancelled && !error && data?.signedUrl) setThumbUrl(data.signedUrl);
+      } catch {
+        /* gradient fallback stays */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [thumbStorageKey]);
+
+  useEffect(() => {
+    if (!videoStorageKey && !videoJobId) {
+      setVideoUrl(null);
+      setVideoError('No video available for this clip.');
+      return;
+    }
+    let cancelled = false;
+    setVideoError(null);
+    (async () => {
+      if (videoStorageKey) {
+        try {
+          const { data, error } = await supabase.storage
+            .from(STORAGE_BUCKET)
+            .createSignedUrl(videoStorageKey, 3600);
+          if (cancelled) return;
+          if (!error && data?.signedUrl) {
+            setVideoUrl(data.signedUrl);
+            return;
+          }
+          if (error) {
+            console.warn('[player-web] supabase.createSignedUrl failed:', error.message);
+          }
+        } catch (e) {
+          console.warn('[player-web] supabase.createSignedUrl threw:', e);
+        }
+      }
+      if (videoJobId) {
+        try {
+          const res = await getJobArtifact(videoJobId, 'video');
+          if (cancelled) return;
+          const url = typeof res.url === 'string' ? res.url : null;
+          if (url) {
+            setVideoUrl(url);
+            return;
+          }
+          setVideoError('Rendered video is still processing.');
+        } catch (e) {
+          if (cancelled) return;
+          const msg = e instanceof Error ? e.message : String(e);
+          console.warn('[player-web] getJobArtifact failed:', msg);
+          setVideoError(msg);
+        }
+      } else {
+        setVideoError('No video available for this clip.');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [videoStorageKey, videoJobId, fetchTick]);
+
   if (loading && !clip) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background as string }}>
@@ -486,7 +726,13 @@ export default function PlayerWebScreen() {
             <LeftSidebar clip={clip} />
           </Animated.View>
           <Animated.View entering={ENTER.fadeUp(140)} style={{ flex: 1, minWidth: 0 }}>
-            <CenterPlayer clip={clip} />
+            <CenterPlayer
+              clip={clip}
+              videoUrl={videoUrl}
+              thumbUrl={thumbUrl}
+              videoError={videoError}
+              onRetry={() => setFetchTick((t) => t + 1)}
+            />
           </Animated.View>
           <Animated.View entering={ENTER.fadeUp(220)}>
             <RightSidebar clip={clip} />

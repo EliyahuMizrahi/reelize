@@ -24,7 +24,6 @@ import {
 import { Chip } from '@/components/ui/Chip';
 import { Button } from '@/components/ui/Button';
 import { IconButton } from '@/components/ui/IconButton';
-import { Noctis } from '@/components/brand/Noctis';
 import { StyleDNA } from '@/components/brand/StyleDNA';
 import { useAppTheme } from '@/contexts/ThemeContext';
 import { palette, radii, spacing } from '@/constants/tokens';
@@ -194,7 +193,6 @@ export default function TopicDetailScreen() {
               gap: spacing.md,
             }}
           >
-            <Noctis variant="scroll" size={110} animated />
             <Title align="center" italic family="serif" style={{ maxWidth: 280 }}>
               No clips yet. Paste a reel to teach yourself.
             </Title>

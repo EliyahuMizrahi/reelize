@@ -1,13 +1,6 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { View, Platform, ScrollView } from 'react-native';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withTiming,
-  withDelay,
-  Easing,
-  interpolate,
-} from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import Svg, { Path } from 'react-native-svg';
@@ -15,9 +8,8 @@ import Svg, { Path } from 'react-native-svg';
 import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
 import { Headline, Body, BodySm, Mono, Overline, TitleSm } from '@/components/ui/Text';
-import { Noctis } from '@/components/brand/Noctis';
 import { ENTER } from '@/components/ui/motion';
-import { palette, spacing, radii, motion } from '@/constants/tokens';
+import { palette, spacing, radii } from '@/constants/tokens';
 
 import OnboardingProgress from '@/components/onboarding/Progress';
 
@@ -53,26 +45,6 @@ export default function HowItWorksScreen() {
   const router = useRouter();
   const isWeb = Platform.OS === 'web';
 
-  // Noctis walks/flies a parallax path between steps
-  const flight = useSharedValue(0);
-
-  useEffect(() => {
-    flight.value = withDelay(
-      400,
-      withTiming(1, { duration: motion.dur.epic, easing: Easing.bezier(0.4, 0, 0.6, 1) }),
-    );
-  }, []);
-
-  const noctisStyle = useAnimatedStyle(() => {
-    // From top-right → drifts left-down slightly, then back up — subtle parallax
-    const x = interpolate(flight.value, [0, 0.5, 1], [0, -14, -4]);
-    const y = interpolate(flight.value, [0, 0.5, 1], [0, 10, 2]);
-    const rot = interpolate(flight.value, [0, 0.5, 1], [0, -3, 1]);
-    return {
-      transform: [{ translateX: x }, { translateY: y }, { rotate: `${rot}deg` }],
-    };
-  });
-
   const handleNext = () => {
     if (!isWeb) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
@@ -82,27 +54,6 @@ export default function HowItWorksScreen() {
 
   return (
     <Screen background="inkGradient" edges={['top', 'bottom']}>
-      {/* Parallax Noctis in corner */}
-      <Animated.View
-        style={[
-          {
-            position: 'absolute',
-            top: spacing['4xl'],
-            right: spacing.xl,
-            zIndex: 2,
-          },
-          noctisStyle,
-        ]}
-      >
-        <Noctis
-          variant="watching"
-          size={64}
-          color={palette.mist}
-          eyeColor={palette.sage}
-          animated
-        />
-      </Animated.View>
-
       <ScrollView
         contentContainerStyle={{
           paddingHorizontal: spacing['2xl'],

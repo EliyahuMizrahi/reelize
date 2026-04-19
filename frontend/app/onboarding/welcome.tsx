@@ -1,13 +1,6 @@
-import React, { useEffect } from 'react';
-import { View, Platform, Pressable } from 'react-native';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withTiming,
-  withRepeat,
-  withSequence,
-  Easing,
-} from 'react-native-reanimated';
+import React from 'react';
+import { View, Platform } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import Svg, { Path, Rect, Circle, Line } from 'react-native-svg';
@@ -15,7 +8,6 @@ import Svg, { Path, Rect, Circle, Line } from 'react-native-svg';
 import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
 import { Display, Body, Mono, Overline } from '@/components/ui/Text';
-import { Noctis } from '@/components/brand/Noctis';
 import { ENTER } from '@/components/ui/motion';
 import { palette, spacing, radii } from '@/constants/tokens';
 
@@ -62,23 +54,6 @@ export default function WelcomeScreen() {
   const router = useRouter();
   const isWeb = Platform.OS === 'web';
 
-  // Noctis perched, with a gentle float
-  const noctisY = useSharedValue(0);
-
-  useEffect(() => {
-    noctisY.value = withRepeat(
-      withSequence(
-        withTiming(-3, { duration: 2200, easing: Easing.bezier(0.4, 0, 0.6, 1) }),
-        withTiming(0, { duration: 2200, easing: Easing.bezier(0.4, 0, 0.6, 1) }),
-      ),
-      -1,
-    );
-  }, []);
-
-  const noctisStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: noctisY.value }],
-  }));
-
   const handleBegin = () => {
     if (!isWeb) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
@@ -88,28 +63,6 @@ export default function WelcomeScreen() {
 
   return (
     <Screen background="inkGradient" edges={['top', 'bottom']}>
-      {/* Perched Noctis in the top-right corner, watching */}
-      <Animated.View
-        style={[
-          {
-            position: 'absolute',
-            top: spacing['4xl'],
-            right: spacing.xl,
-            zIndex: 2,
-          },
-          noctisStyle,
-        ]}
-        entering={ENTER.fadeSlow(200)}
-      >
-        <Noctis
-          variant="perched"
-          size={92}
-          color={palette.mist}
-          eyeColor={palette.sage}
-          animated
-        />
-      </Animated.View>
-
       <View
         style={{
           flex: 1,

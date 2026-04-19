@@ -21,7 +21,6 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 
-import { Noctis } from "@/components/brand/Noctis";
 import { Divider, Surface } from "@/components/ui/Surface";
 import { BodySm, Overline, Text } from "@/components/ui/Text";
 import { palette, radii, spacing, type as fontType, z } from "@/constants/tokens";
@@ -684,18 +683,31 @@ function DiscSwitcher() {
   const { data: topics } = useTopicsForClass(activeShelfId ?? undefined);
   const [open, setOpen] = useState(false);
 
-  const list = topics ?? [];
+  // Filter out stale topics left over from a previous shelf: useAsync keeps
+  // old data visible while a new fetch is in-flight, so without this guard
+  // the auto-pick effect below would grab a disc from the *previous* shelf.
+  const list = useMemo<TopicWithClipCount[]>(
+    () =>
+      (topics ?? []).filter(
+        (t) => (t as any).class_id === activeShelfId,
+      ),
+    [topics, activeShelfId],
+  );
+
   const current = useMemo(
     () => list.find((t) => t.id === activeDiscId) ?? null,
     [list, activeDiscId],
   );
 
-  // Auto-select the first disc in the current shelf so the pill always reflects
-  // a real selection (matches mobile's behaviour where a disc is implied).
+  // Keep the active disc consistent with the active shelf:
+  //   • no disc yet → pick the first one
+  //   • current disc belongs to a different shelf → replace with the first
+  //     disc of the current shelf instead of leaving a dangling selection.
   useEffect(() => {
-    if (activeShelfId && !activeDiscId && list.length > 0) {
-      setActiveDiscId(list[0].id);
-    }
+    if (!activeShelfId) return;
+    if (list.length === 0) return;
+    const valid = activeDiscId && list.some((t) => t.id === activeDiscId);
+    if (!valid) setActiveDiscId(list[0].id);
   }, [activeShelfId, activeDiscId, list, setActiveDiscId]);
 
   const items: SwitcherItem[] = list.map((t: TopicWithClipCount) => ({
@@ -774,6 +786,15 @@ function AvatarMenu() {
 
   const displayName = profile?.display_name ?? profile?.username ?? "You";
   const email = user?.email ?? "";
+  const initial = (
+    profile?.display_name ??
+    profile?.username ??
+    user?.email ??
+    "?"
+  )
+    .trim()
+    .charAt(0)
+    .toUpperCase();
 
   return (
     <View>
@@ -788,11 +809,11 @@ function AvatarMenu() {
             borderRadius: 14,
             alignItems: "center",
             justifyContent: "center",
-            backgroundColor: hovered
-              ? (colors.elevated as string)
-              : (colors.card as string),
+            backgroundColor: (colors.primary as string) + "22",
             borderWidth: 1,
-            borderColor: colors.border as string,
+            borderColor: hovered
+              ? (colors.primary as string)
+              : (colors.border as string),
             opacity: pressed ? 0.85 : 1,
           },
           webStyle.pointer,
@@ -800,12 +821,14 @@ function AvatarMenu() {
           focused ? webStyle.focusRing(colors.primary as string, "44") : null,
         ]}
       >
-        <Noctis
-          variant="head"
-          size={18}
-          color={colors.text as string}
-          eyeColor={colors.primary as string}
-        />
+        <Text
+          variant="bodySm"
+          weight="semibold"
+          color={colors.primary as string}
+          style={{ lineHeight: 14 }}
+        >
+          {initial}
+        </Text>
       </Pressable>
       <FloatingMenu
         open={open}
@@ -908,12 +931,25 @@ function TopBar() {
           focused ? webStyle.focusRing(colors.primary as string, "44") : null,
         ]}
       >
-        <Noctis
-          variant="mark"
-          size={20}
-          color={isDark ? palette.mist : palette.ink}
-          eyeColor={colors.primary as string}
-        />
+        <View
+          style={{
+            width: 20,
+            height: 20,
+            borderRadius: 5,
+            backgroundColor: colors.primary as string,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Text
+            family="serif"
+            weight="bold"
+            style={{ fontSize: 13, lineHeight: 14 }}
+            color={colors.onPrimary as string}
+          >
+            R
+          </Text>
+        </View>
       </Pressable>
 
       {/* Shelf → disc breadcrumb pills */}

@@ -23,7 +23,6 @@ import {
   MonoSm,
   Overline,
 } from '@/components/ui/Text';
-import { Noctis } from '@/components/brand/Noctis';
 import { ENTER, stagger } from '@/components/ui/motion';
 import { useAppTheme } from '@/contexts/ThemeContext';
 import { palette, radii, spacing, motion } from '@/constants/tokens';
@@ -115,20 +114,6 @@ export default function TopicScreen() {
         <IconButton onPress={onBack} size={40} accessibilityLabel="Back">
           <Feather name="chevron-left" size={20} color={colors.text as string} />
         </IconButton>
-      </View>
-
-      {/* Noctis watermark — still */}
-      <View
-        pointerEvents="none"
-        style={{
-          position: 'absolute',
-          right: -28,
-          bottom: spacing['5xl'],
-          opacity: 0.1,
-          zIndex: 0,
-        }}
-      >
-        <Noctis variant="perched" size={200} color={colors.text as string} eyeColor={palette.sage} />
       </View>
 
       <ScrollView

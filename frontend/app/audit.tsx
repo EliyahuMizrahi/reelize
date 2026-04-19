@@ -8,7 +8,6 @@ import Animated from 'react-native-reanimated';
 import { Screen } from '@/components/ui/Screen';
 import { Display2, Title, TitleSm, BodySm, Mono, MonoSm, Overline } from '@/components/ui/Text';
 import { IconButton } from '@/components/ui/IconButton';
-import { Noctis } from '@/components/brand/Noctis';
 import { useAppTheme } from '@/contexts/ThemeContext';
 import { palette, radii, spacing } from '@/constants/tokens';
 import { ENTER, stagger } from '@/components/ui/motion';
@@ -30,9 +29,8 @@ function buildSections(sampleClassId: string, sampleTopicId: string, sampleClipI
   return [
     {
       overline: 'I · Entrance',
-      caption: 'Splash, onboarding, auth. The first twenty seconds.',
+      caption: 'Onboarding and auth. The first twenty seconds.',
       routes: [
-        { title: 'Splash', path: '/splash', note: 'shard assembly · eye ignition' },
         { title: 'Welcome', path: '/onboarding/welcome' },
         { title: 'How it works', path: '/onboarding/how-it-works' },
         { title: 'First class', path: '/onboarding/first-class' },
@@ -157,12 +155,6 @@ export default function AuditIndexScreen() {
             <Feather name="chevron-left" size={22} color={colors.text as string} />
           </IconButton>
           <View style={{ flex: 1 }} />
-          <Noctis
-            variant="watching"
-            size={44}
-            color={colors.text as string}
-            eyeColor={palette.sage}
-          />
         </Animated.View>
 
         {/* Title */}

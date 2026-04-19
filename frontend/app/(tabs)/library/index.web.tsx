@@ -19,7 +19,6 @@ import { Chip } from '@/components/ui/Chip';
 import { TextField } from '@/components/ui/TextField';
 import { Display2, Headline, Title, TitleSm, Body, BodySm, Mono, MonoSm, Overline, Text } from '@/components/ui/Text';
 import { useActiveCourse } from '@/components/navigation/WebAppChrome';
-import { Noctis } from '@/components/brand/Noctis';
 import { Shards } from '@/components/brand/Shards';
 import { StyleDNA } from '@/components/brand/StyleDNA';
 import { palette, spacing, radii } from '@/constants/tokens';

@@ -8,16 +8,10 @@ import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
 import { TextField } from '@/components/ui/TextField';
 import { Headline, BodySm } from '@/components/ui/Text';
-import { NoctisSprite } from '@/components/brand/NoctisSprite';
 import { ENTER } from '@/components/ui/motion';
 import { useAppTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { palette, spacing, radii } from '@/constants/tokens';
-
-// ── Noctis sprite sizing ──────────────────────────────────────────────
-// Keep in sync with sign-up.tsx for visual consistency.
-const NOCTIS_SIZE_MOBILE = 104;
-const NOCTIS_SIZE_WEB = 72;
 
 // ── Form typography ───────────────────────────────────────────────────
 const FIELD_LABEL_STYLE = {
@@ -72,23 +66,14 @@ export default function SignInScreen() {
   const BOTTOM_CLUSTER_RESERVE = isWeb ? spacing['3xl'] : BOTTOM_OFFSET + 140;
 
   const headerRow = (
-    <Animated.View
-      entering={ENTER.fadeUpSlow(240)}
-      style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: spacing.lg,
-      }}
-    >
-      <View style={{ flex: 1 }}>
-        <Headline
-          color={textColor}
-          style={isWeb ? { fontSize: 33, lineHeight: 39 } : undefined}
-        >
-          {isWeb ? 'Back where you left off.' : 'Back where\nyou left off.'}
-        </Headline>
-      </View>
-      <NoctisSprite size={isWeb ? NOCTIS_SIZE_WEB : NOCTIS_SIZE_MOBILE} />
+    <Animated.View entering={ENTER.fadeUpSlow(240)}>
+      <Headline
+        color={textColor}
+        align="center"
+        style={isWeb ? { fontSize: 33, lineHeight: 39 } : { fontSize: 38, lineHeight: 44 }}
+      >
+        Back where you left off.
+      </Headline>
     </Animated.View>
   );
 

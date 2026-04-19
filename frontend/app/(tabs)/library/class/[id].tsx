@@ -29,7 +29,6 @@ import { palette, spacing } from '@/constants/tokens';
 import { ENTER, stagger } from '@/components/ui/motion';
 import { useClass, useTopicsForClass } from '@/data/hooks';
 import type { TopicWithClipCount } from '@/data/queries';
-import { Noctis } from '@/components/brand/Noctis';
 import { Button } from '@/components/ui/Button';
 import { formatRelative } from '@/lib/format';
 
@@ -178,7 +177,6 @@ export default function ClassDetailScreen() {
             gap: spacing.md,
           }}
         >
-          <Noctis variant="perched" size={100} color={colors.text as string} eyeColor={classColor} animated />
           <Title
             align="center"
             family="serif"

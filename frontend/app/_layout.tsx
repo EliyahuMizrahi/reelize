@@ -2,13 +2,11 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { AppThemeProvider, useAppTheme } from "@/contexts/ThemeContext";
 import { Stack, usePathname } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import * as SplashScreen from "expo-splash-screen";
-import React, { useEffect } from "react";
+import React from "react";
 import { Platform, View } from "react-native";
 import "react-native-gesture-handler";
 import { useAppFonts } from "@/hooks/useAppFonts";
 import { palette } from "@/constants/tokens";
-import { Noctis } from "@/components/brand/Noctis";
 import { WebAppChrome } from "@/components/navigation/WebAppChrome";
 
 const WEB_CHROME_PREFIXES = ["/feed", "/library", "/create", "/profile"];
@@ -22,15 +20,9 @@ function WebChromeGate({ children }: { children: React.ReactNode }) {
   return <WebAppChrome>{children}</WebAppChrome>;
 }
 
-SplashScreen.preventAutoHideAsync().catch(() => {});
-
 function RootShell() {
   const { loaded } = useAppFonts();
   const { colors, isDark } = useAppTheme();
-
-  useEffect(() => {
-    if (loaded) SplashScreen.hideAsync().catch(() => {});
-  }, [loaded]);
 
   if (!loaded) {
     return (
@@ -41,9 +33,7 @@ function RootShell() {
           justifyContent: "center",
           backgroundColor: palette.ink,
         }}
-      >
-        <Noctis variant="mark" size={96} color={palette.mist} eyeColor={palette.sage} />
-      </View>
+      />
     );
   }
 
@@ -54,9 +44,6 @@ function RootShell() {
           screenOptions={{
             headerShown: false,
             contentStyle: { backgroundColor: colors.background as string },
-            // Fade at the root stack level so splash → (auth) is a seamless
-            // crossfade on every platform. Inner stacks (e.g. sign-in ↔ sign-up)
-            // keep their own defaults.
             animation: "fade",
           }}
         >

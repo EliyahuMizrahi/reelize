@@ -17,7 +17,6 @@ import { Feather } from '@expo/vector-icons';
 import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
 import { Mono, Overline, Text } from '@/components/ui/Text';
-import { Noctis } from '@/components/brand/Noctis';
 import { Shards } from '@/components/brand/Shards';
 import { ShimmerBadge, ShimmerRing } from '@/components/brand/Shimmer';
 import { useAppTheme } from '@/contexts/ThemeContext';
@@ -756,11 +755,6 @@ export default function GenerationScreen() {
             Cancel
           </Text>
         </Pressable>
-      </View>
-
-      {/* Noctis watching, eye progress */}
-      <View style={{ position: 'absolute', top: spacing['3xl'], right: spacing.lg, zIndex: 5 }}>
-        <Noctis variant="watching" animated size={64} color={palette.mist} eyeColor={palette.sage} />
       </View>
 
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>

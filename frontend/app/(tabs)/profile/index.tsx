@@ -17,7 +17,6 @@ import {
 } from '@/components/ui/Text';
 import { Surface, Divider } from '@/components/ui/Surface';
 import { IconButton } from '@/components/ui/IconButton';
-import { Noctis } from '@/components/brand/Noctis';
 import { useAppTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { palette, spacing } from '@/constants/tokens';
@@ -92,12 +91,10 @@ export default function DashboardScreen() {
               overflow: 'hidden',
             }}
           >
-            <Noctis
-              variant="head"
-              size={40}
+            <Feather
+              name="user"
+              size={28}
               color={isDark ? palette.mist : palette.ink}
-              eyeColor={palette.sage}
-              animated
             />
           </View>
           <View style={{ flex: 1 }}>

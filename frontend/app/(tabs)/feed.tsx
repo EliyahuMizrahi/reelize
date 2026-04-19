@@ -27,7 +27,6 @@ import { Headline, Title, BodySm, Mono, MonoSm, Overline } from '@/components/ui
 import { Chip } from '@/components/ui/Chip';
 import { IconButton } from '@/components/ui/IconButton';
 import { Button } from '@/components/ui/Button';
-import { Noctis } from '@/components/brand/Noctis';
 import { Shards } from '@/components/brand/Shards';
 import { StyleDNA, DEFAULT_DNA } from '@/components/brand/StyleDNA';
 import { ShimmerBadge } from '@/components/brand/Shimmer';
@@ -300,11 +299,6 @@ function ClipItem({ clip, index, total, active, height, onOpenPlayer }: ClipItem
         </Animated.View>
       )}
 
-      {/* ── Noctis peek (top-left) ─────────────────── */}
-      <Animated.View style={[styles.noctisPeek, noctisStyle]} pointerEvents="none">
-        <Noctis variant="watching" size={44} color={palette.mist} eyeColor={clip.classColor} animated />
-      </Animated.View>
-
       {/* ── Top-right medallion ────────────────────── */}
       {active && (
         <Animated.View
@@ -355,8 +349,21 @@ function ClipItem({ clip, index, total, active, height, onOpenPlayer }: ClipItem
                 entering={ENTER.fadeUp(stagger(2, 80, 80))}
                 style={styles.attribution}
               >
-                <View style={styles.avatar}>
-                  <Noctis variant="head" size={22} color={palette.ink} eyeColor={clip.classColor} />
+                <View
+                  style={[
+                    styles.avatar,
+                    { alignItems: 'center', justifyContent: 'center' },
+                  ]}
+                >
+                  <Mono
+                    color={clip.classColor}
+                    style={{ fontSize: 11, letterSpacing: 0.5 }}
+                  >
+                    {(clip.sourceCreator ?? '?')
+                      .replace(/^@/, '')
+                      .charAt(0)
+                      .toUpperCase()}
+                  </Mono>
                 </View>
                 <Mono color={palette.fog} style={{ opacity: 0.85 }}>
                   {clip.sourceCreator}
@@ -491,7 +498,6 @@ export default function FeedScreen() {
     return (
       <Screen edges={[]} background="ink">
         <View style={styles.emptyWrap}>
-          <Noctis variant="scroll" size={120} color={palette.mist} eyeColor={palette.sage} animated />
           <Title
             align="center"
             family="serif"

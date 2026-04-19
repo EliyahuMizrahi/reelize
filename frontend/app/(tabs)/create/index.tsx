@@ -27,7 +27,6 @@ import {
   Text,
   Title,
 } from '@/components/ui/Text';
-import { Noctis } from '@/components/brand/Noctis';
 import { ENTER } from '@/components/ui/motion';
 import { useAppTheme } from '@/contexts/ThemeContext';
 import { palette, radii, spacing, motion } from '@/constants/tokens';
@@ -541,20 +540,6 @@ export default function CreateScreen() {
     };
   }, [router]);
 
-  const noctisFloat = useSharedValue(0);
-  useEffect(() => {
-    noctisFloat.value = withRepeat(
-      withSequence(
-        withTiming(-3, { duration: 2400, easing: Easing.bezier(0.4, 0, 0.6, 1) }),
-        withTiming(0, { duration: 2400, easing: Easing.bezier(0.4, 0, 0.6, 1) }),
-      ),
-      -1,
-    );
-  }, []);
-  const noctisStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: noctisFloat.value }],
-  }));
-
   const urlReady =
     activeUrl.trim().length > 6 && detectPlatform(activeUrl) !== null;
   const uploadReady = !!pickedVideo;
@@ -581,31 +566,15 @@ export default function CreateScreen() {
 
   return (
     <Screen background="primary">
-      {/* Noctis — watching, top-right */}
-      <Animated.View
-        style={[
-          {
-            position: 'absolute',
-            top: spacing['3xl'],
-            right: spacing.xl,
-            zIndex: 2,
-          },
-          noctisStyle,
-        ]}
-        entering={ENTER.fadeSlow(160)}
-      >
-        <Noctis variant="watching" animated size={64} color={colors.primary as string} eyeColor={palette.sage} />
-      </Animated.View>
-
       <ScrollView
         contentContainerStyle={{ paddingBottom: 160 }}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
         <ScreenContent>
-          <View style={{ marginTop: spacing['3xl'], marginBottom: spacing.xl, maxWidth: 280 }}>
-            <Animated.View entering={ENTER.fadeUp(60)}>
-              <Display2>Start with a reel you love.</Display2>
+          <View style={{ marginTop: spacing['3xl'], marginBottom: spacing.xl, alignItems: 'center' }}>
+            <Animated.View entering={ENTER.fadeUp(60)} style={{ maxWidth: 280 }}>
+              <Display2 align="center">Start with a reel you love.</Display2>
             </Animated.View>
           </View>
 

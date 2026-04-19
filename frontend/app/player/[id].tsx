@@ -32,11 +32,10 @@ import Animated, {
 import { ResizeMode, Video, type AVPlaybackStatus } from 'expo-av';
 
 import { Screen } from '@/components/ui/Screen';
-import { Title, TitleSm, Body, BodySm, Mono, MonoSm, Overline, Label } from '@/components/ui/Text';
+import { Title, TitleSm, Body, BodySm, Mono, MonoSm, Overline, Label, Text } from '@/components/ui/Text';
 import { IconButton } from '@/components/ui/IconButton';
 import { Chip } from '@/components/ui/Chip';
 import { Divider } from '@/components/ui/Surface';
-import { Noctis } from '@/components/brand/Noctis';
 import { Shards } from '@/components/brand/Shards';
 import { StyleDNA } from '@/components/brand/StyleDNA';
 import { Waveform } from '@/components/brand/Waveform';
@@ -518,13 +517,10 @@ function DNAOverlay({ clip, open, onClose }: DNAOverlayProps) {
             <Overline muted>Source creator fingerprint</Overline>
 
             <View style={styles.creatorRow}>
-              <View style={styles.creatorAvatar}>
-                <Noctis
-                  variant="head"
-                  size={58}
-                  color={palette.ink}
-                  eyeColor={clip.classColor}
-                />
+              <View style={[styles.creatorAvatar, { alignItems: 'center', justifyContent: 'center' }]}>
+                <Text variant="title" weight="semibold" color={clip.classColor}>
+                  {(clip.creator.handle ?? '?').replace(/^@/, '').charAt(0).toUpperCase()}
+                </Text>
               </View>
               <View style={{ flex: 1 }}>
                 <Title color={palette.mist}>{clip.creator.handle}</Title>

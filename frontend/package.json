@@ -30,7 +30,6 @@
     "expo-image-picker": "~17.0.10",
     "expo-linear-gradient": "15.0.8",
     "expo-router": "6.0.10",
-    "expo-splash-screen": "31.0.10",
     "expo-status-bar": "3.0.8",
     "react": "19.1.0",
     "react-dom": "19.1.0",

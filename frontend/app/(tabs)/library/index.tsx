@@ -39,7 +39,6 @@ import { Button } from '@/components/ui/Button';
 import { IconButton } from '@/components/ui/IconButton';
 import { TextField } from '@/components/ui/TextField';
 import DraggableBottomSheet from '@/components/ui/DraggableBottomSheet';
-import { Noctis } from '@/components/brand/Noctis';
 import { Shards } from '@/components/brand/Shards';
 import { useAppTheme } from '@/contexts/ThemeContext';
 import { palette, radii, spacing } from '@/constants/tokens';
@@ -272,13 +271,6 @@ export default function LibraryScreen() {
             paddingHorizontal: spacing['2xl'],
           }}
         >
-          <Noctis
-            variant="perched"
-            size={140}
-            color={colors.text as string}
-            eyeColor={palette.sage}
-            animated
-          />
           <Title
             align="center"
             family="serif"

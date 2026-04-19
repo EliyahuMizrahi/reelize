@@ -6,7 +6,6 @@ import { Redirect, Tabs } from "expo-router";
 import React from "react";
 import { Platform, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Noctis } from "@/components/brand/Noctis";
 import { palette } from "@/constants/tokens";
 import { Text } from "@/components/ui/Text";
 
@@ -20,8 +19,8 @@ function LibraryIcon({ color }: TabIconProps) {
   return <Feather name="book-open" size={22} color={color} />;
 }
 
-function ProfileIcon({ color, focused }: TabIconProps) {
-  return <Noctis variant="head" size={26} color={color} eyeColor={focused ? palette.sage : color} />;
+function ProfileIcon({ color }: TabIconProps) {
+  return <Feather name="user" size={24} color={color} />;
 }
 
 function TabLabel({ label, color }: { label: string; color: string }) {
@@ -37,8 +36,6 @@ export default function TabsLayout() {
   const { session, isLoading } = useAuth();
   const isWeb = Platform.OS === "web";
 
-  // Block all (tabs) screens for unauthenticated users. A momentary null
-  // return is fine — the splash-equivalent loader lives in app/index.tsx.
   if (isLoading) return null;
   if (!session) return <Redirect href="/(auth)/sign-up" />;
 

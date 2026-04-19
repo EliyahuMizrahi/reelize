@@ -14,7 +14,6 @@ import { Button } from '@/components/ui/Button';
 import { TextField } from '@/components/ui/TextField';
 import { IconButton } from '@/components/ui/IconButton';
 import { Display2, Headline, Title, TitleSm, Body, BodySm, Mono, MonoSm, Overline, Text } from '@/components/ui/Text';
-import { Noctis } from '@/components/brand/Noctis';
 import { Shards } from '@/components/brand/Shards';
 import { Waveform, PacingGraph } from '@/components/brand/Waveform';
 import { StyleDNA, DEFAULT_DNA } from '@/components/brand/StyleDNA';
@@ -188,7 +187,7 @@ function LabPanel({ cfg, included, onToggle, style }: LabPanelProps) {
 
 // ───────────────────────── Create (web) ─────────────────────────
 export default function CreateWebScreen() {
-  const { colors, isDark } = useAppTheme();
+  const { colors } = useAppTheme();
   const { width } = useWindowDimensions();
 
   const [url, setUrl] = useState('');
@@ -320,10 +319,6 @@ export default function CreateWebScreen() {
             </View>
           </View>
         )}
-        {/* Noctis on canvas corner */}
-        <View style={{ position: 'absolute', top: -38, right: -6 }}>
-          <Noctis variant="perched" size={62} color={isDark ? palette.mist : palette.ink} eyeColor={palette.sage} animated />
-        </View>
       </Surface>
     </View>
   );

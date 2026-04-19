@@ -8,8 +8,6 @@ import { Screen } from '@/components/ui/Screen';
 import { Button } from '@/components/ui/Button';
 import { TextField } from '@/components/ui/TextField';
 import { Headline, Body, BodySm, Overline } from '@/components/ui/Text';
-import { Noctis } from '@/components/brand/Noctis';
-import { NoctisSprite } from '@/components/brand/NoctisSprite';
 import { ENTER } from '@/components/ui/motion';
 import { useAppTheme } from '@/contexts/ThemeContext';
 import { palette, spacing, radii } from '@/constants/tokens';
@@ -19,11 +17,6 @@ import { supabase } from '@/lib/supabase';
 // Matches "local@domain.tld" with no whitespace in any segment — good enough
 // for a client-side gate, the server does the real RFC validation.
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-// ── Noctis sprite sizing ──────────────────────────────────────────────
-// Tweak these two numbers to resize the pixel-art crow on the sign-up page.
-const NOCTIS_SIZE_MOBILE = 104; // mobile: sits above the headline, inline with scroll
-const NOCTIS_SIZE_WEB = 72;     // web:    floats in the top-right corner
 
 // ── Form typography ───────────────────────────────────────────────────
 // Larger field labels for auth — the default Overline (10pt) reads as cramped
@@ -139,7 +132,6 @@ export default function SignUpScreen() {
             gap: spacing.xl,
           }}
         >
-          <Noctis variant="scroll" size={120} color={textColor} eyeColor={palette.sage} />
           <Animated.View entering={ENTER.fadeUp(120)} style={{ alignItems: 'center', gap: spacing.md }}>
             <Overline color={palette.sage}>Check your inbox</Overline>
             <Headline color={textColor} align="center">A note has left the nest.</Headline>
@@ -173,20 +165,14 @@ export default function SignUpScreen() {
   const BOTTOM_CLUSTER_RESERVE = isWeb ? spacing['3xl'] : BOTTOM_OFFSET + 140;
 
   const headerRow = (
-    <Animated.View
-      entering={ENTER.fadeUpSlow(240)}
-      style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: spacing.lg,
-      }}
-    >
-      <View style={{ flex: 1 }}>
-        <Headline color={textColor}>
-          {isWeb ? 'From scroll to study.' : 'From scroll\nto study.'}
-        </Headline>
-      </View>
-      <NoctisSprite size={isWeb ? NOCTIS_SIZE_WEB : NOCTIS_SIZE_MOBILE} />
+    <Animated.View entering={ENTER.fadeUpSlow(240)}>
+      <Headline
+        color={textColor}
+        align="center"
+        style={isWeb ? undefined : { fontSize: 38, lineHeight: 44 }}
+      >
+        From scroll to study.
+      </Headline>
     </Animated.View>
   );
 

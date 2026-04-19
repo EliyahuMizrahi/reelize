@@ -86,6 +86,7 @@ export type Database = {
           generation_job_id: string | null
           id: string
           job_id: string | null
+          note: string | null
           source_creator: string | null
           source_platform: string | null
           source_url: string | null
@@ -107,6 +108,7 @@ export type Database = {
           generation_job_id?: string | null
           id?: string
           job_id?: string | null
+          note?: string | null
           source_creator?: string | null
           source_platform?: string | null
           source_url?: string | null
@@ -128,6 +130,7 @@ export type Database = {
           generation_job_id?: string | null
           id?: string
           job_id?: string | null
+          note?: string | null
           source_creator?: string | null
           source_platform?: string | null
           source_url?: string | null

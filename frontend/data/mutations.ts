@@ -193,10 +193,11 @@ export async function deleteClip(id: string): Promise<void> {
 
 export async function updateClip(
   id: string,
-  patch: { title?: string },
+  patch: { title?: string; note?: string | null },
 ): Promise<Row<'clips'>> {
   const update: Update<'clips'> = {};
   if (patch.title !== undefined) update.title = patch.title;
+  if (patch.note !== undefined) update.note = patch.note;
   const { data, error } = await supabase
     .from('clips')
     .update(update)

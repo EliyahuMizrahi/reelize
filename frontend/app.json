@@ -25,16 +25,7 @@
       "output": "static"
     },
     "plugins": [
-      "expo-router",
-      [
-        "expo-splash-screen",
-        {
-          "backgroundColor": "#02060F",
-          "dark": {
-            "backgroundColor": "#02060F"
-          }
-        }
-      ]
+      "expo-router"
     ],
     "experiments": {
       "typedRoutes": true,
