@@ -19,7 +19,56 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       git \
       curl \
       build-essential \
+      ca-certificates \
+      gnupg \
+      # ── Remotion headless Chromium runtime deps ──────────────────────
+      # Remotion (@remotion/renderer) downloads Chrome Headless Shell at
+      # first render; these system libs are what that binary links against
+      # on Debian bookworm. Trimming any of them causes Chromium to crash
+      # with a cryptic libX*/libnss error — keep the full list.
+      fonts-liberation \
+      libasound2 \
+      libatk-bridge2.0-0 \
+      libatk1.0-0 \
+      libcairo2 \
+      libcups2 \
+      libdbus-1-3 \
+      libdrm2 \
+      libexpat1 \
+      libfontconfig1 \
+      libgbm1 \
+      libgcc-s1 \
+      libglib2.0-0 \
+      libgtk-3-0 \
+      libnspr4 \
+      libnss3 \
+      libpango-1.0-0 \
+      libpangocairo-1.0-0 \
+      libx11-6 \
+      libx11-xcb1 \
+      libxcb1 \
+      libxcomposite1 \
+      libxcursor1 \
+      libxdamage1 \
+      libxext6 \
+      libxfixes3 \
+      libxi6 \
+      libxkbcommon0 \
+      libxrandr2 \
+      libxrender1 \
+      libxss1 \
+      libxtst6 \
+      lsb-release \
+      wget \
+      xdg-utils \
     && rm -rf /var/lib/apt/lists/*
+
+# Node 20 for the Remotion render subprocess. NodeSource ships a clean apt
+# repo so we avoid the stale Node that Debian's own repos pin.
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/* \
+    && node --version && npm --version
 
 WORKDIR /app
 
@@ -49,12 +98,36 @@ RUN pip install -r requirements.txt
 # so torchaudio.save() doesn't route through its broken CPU path.
 RUN pip uninstall -y torchcodec 2>/dev/null || true
 
+# Remotion npm deps in their own layer (package.json changes rarely, so this
+# stays cached across code edits). `remotion/` is a side project inside the
+# backend image — its node_modules end up at /app/remotion/node_modules.
+COPY remotion/package.json remotion/package-lock.json* remotion/
+RUN cd remotion && npm install --no-audit --no-fund
+
+# Pre-fetch Chrome Headless Shell so the first /generate request doesn't
+# spend 30s downloading it inside the request path. Falls back gracefully
+# (swallowed exit code) if Remotion hasn't stabilized the CLI name yet —
+# the renderer also lazy-downloads at runtime.
+RUN cd remotion \
+    && (npx --yes remotion browser ensure 2>/dev/null \
+        || npx --yes remotion install 2>/dev/null \
+        || echo "remotion: skipping browser prefetch, will lazy-download")
+
+# Remotion writes its Chromium cache under $HOME/.cache/remotion by default.
+# We run as appuser (uid 10001) below, so point the cache at /cache (already
+# owned by appuser) to avoid the "read-only file system" bootstrap error.
+ENV REMOTION_BROWSER_EXECUTABLE="" \
+    PUPPETEER_CACHE_DIR=/cache/puppeteer \
+    REMOTION_CACHE_DIR=/cache/remotion
+
 COPY . .
 
 # Non-root user for runtime. /app, /cache and /app/tmp need to be writable
-# because the app downloads models and writes scratch media there.
+# because the app downloads models and writes scratch media there. The
+# puppeteer + remotion subdirs of /cache hold the Chromium binary Remotion
+# downloads at first render.
 RUN useradd --create-home --shell /usr/sbin/nologin --uid 10001 appuser \
-    && mkdir -p /cache /app/tmp \
+    && mkdir -p /cache /cache/puppeteer /cache/remotion /app/tmp \
     && chown -R appuser:appuser /app /cache
 
 USER appuser

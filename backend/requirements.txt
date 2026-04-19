@@ -27,3 +27,4 @@ soundfile>=0.12,<1
 scipy>=1.11,<2
 scikit-learn>=1.4,<2
 numpy>=1.26,<3
+elevenlabs>=1.0,<3

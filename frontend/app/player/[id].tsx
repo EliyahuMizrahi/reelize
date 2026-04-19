@@ -40,6 +40,11 @@ import { Waveform } from '@/components/brand/Waveform';
 import { palette, spacing, radii, motion } from '@/constants/tokens';
 import { useClip } from '@/data/hooks';
 import { DEFAULT_DNA, type DNAToken } from '@/components/brand/StyleDNA';
+import {
+  creatorSummaryFromStyle,
+  dnaTokensFromStyle,
+  transcriptFromStyle,
+} from '@/lib/format';
 import type { Row } from '@/types/supabase';
 
 // View-model shape expected by the player. We derive it from the real
@@ -86,6 +91,12 @@ function clipFromRow(row: Row<'clips'>): Clip {
     cutPoints.push(Math.max(0.04, Math.min(0.96, base + jitter)));
   }
   const creatorHandle = row.source_creator ?? '@source';
+  const { tokens } = dnaTokensFromStyle(row.style_dna);
+  const creator = creatorSummaryFromStyle(row.style_dna, creatorHandle);
+  const realTranscript = transcriptFromStyle(row.style_dna);
+  const transcript = realTranscript ?? [
+    { speaker: 0, t: '0:00', text: 'Transcript unavailable.' },
+  ];
   return {
     id: row.id,
     topic: row.title,
@@ -96,18 +107,9 @@ function clipFromRow(row: Row<'clips'>): Clip {
     thumbnailColor: row.thumbnail_color ?? palette.tealDeep,
     durationMs,
     cutPoints,
-    tokens: DEFAULT_DNA,
-    creator: {
-      handle: creatorHandle,
-      avgCutsPerMin: 22,
-      captionStyle: 'Full-sentence emphasis',
-      voiceEnergy: 'Warm, measured',
-      signatureTransition: 'Slow whip-pan',
-    },
-    transcript: [
-      { speaker: 0, t: '0:00', text: row.title },
-      { speaker: 0, t: '0:10', text: 'Transcript not yet extracted — playback is placeholder.' },
-    ],
+    tokens,
+    creator,
+    transcript,
   };
 }
 

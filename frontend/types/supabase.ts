@@ -83,6 +83,7 @@ export type Database = {
           artifacts: Json | null
           created_at: string
           duration_s: number | null
+          generation_job_id: string | null
           id: string
           job_id: string | null
           source_creator: string | null
@@ -96,12 +97,14 @@ export type Database = {
           topic_id: string
           updated_at: string
           user_id: string
+          voice_ids: Json | null
         }
         Insert: {
           artifact_prefix?: string | null
           artifacts?: Json | null
           created_at?: string
           duration_s?: number | null
+          generation_job_id?: string | null
           id?: string
           job_id?: string | null
           source_creator?: string | null
@@ -115,12 +118,14 @@ export type Database = {
           topic_id: string
           updated_at?: string
           user_id: string
+          voice_ids?: Json | null
         }
         Update: {
           artifact_prefix?: string | null
           artifacts?: Json | null
           created_at?: string
           duration_s?: number | null
+          generation_job_id?: string | null
           id?: string
           job_id?: string | null
           source_creator?: string | null
@@ -134,8 +139,16 @@ export type Database = {
           topic_id?: string
           updated_at?: string
           user_id?: string
+          voice_ids?: Json | null
         }
         Relationships: [
+          {
+            foreignKeyName: "clips_generation_job_id_fkey"
+            columns: ["generation_job_id"]
+            isOneToOne: false
+            referencedRelation: "jobs"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "clips_job_id_fkey"
             columns: ["job_id"]
@@ -211,6 +224,7 @@ export type Database = {
           error: string | null
           game_hint: string | null
           id: string
+          kind: string
           source_type: string
           source_url: string | null
           status: string
@@ -229,6 +243,7 @@ export type Database = {
           error?: string | null
           game_hint?: string | null
           id?: string
+          kind?: string
           source_type: string
           source_url?: string | null
           status?: string
@@ -247,6 +262,7 @@ export type Database = {
           error?: string | null
           game_hint?: string | null
           id?: string
+          kind?: string
           source_type?: string
           source_url?: string | null
           status?: string
@@ -553,3 +569,12 @@ export const Constants = {
     Enums: {},
   },
 } as const
+
+// ─────────────────────────────────────────────────────────────────────
+// Convenience aliases used across the app (`Row<'clips'>`, etc.).
+// Preserved across type regeneration — the Supabase CLI omits these.
+// ─────────────────────────────────────────────────────────────────────
+type Pub = Database['public']['Tables']
+export type Row<T extends keyof Pub> = Pub[T]['Row']
+export type Insert<T extends keyof Pub> = Pub[T]['Insert']
+export type Update<T extends keyof Pub> = Pub[T]['Update']

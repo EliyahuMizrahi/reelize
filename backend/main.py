@@ -37,6 +37,7 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 from auth import CurrentUser, get_current_user
+from generation.worker import process_clip_generation
 from storage import get_storage
 from supabase_client import get_supabase
 from worker import process_job
@@ -191,6 +192,23 @@ async def _run_with_sem(job_id: str, **kwargs) -> None:
         await process_job(job_id=job_id, **kwargs)
 
 
+async def _run_generation(job_id: str) -> None:
+    """BackgroundTasks wrapper for the generation worker.
+
+    process_clip_generation owns its own semaphore (shared with process_job
+    via worker._JOB_SEMAPHORE), so we don't wrap it here too — that would
+    deadlock if the deconstruction worker is already holding the slot.
+    """
+    try:
+        await process_clip_generation(job_id=job_id)
+    except Exception:  # noqa: BLE001
+        # Errors are already logged + recorded on the job row by the worker.
+        # Don't let them bubble into FastAPI's background-task logger as an
+        # unhandled exception (noisy, and the /generate caller has already
+        # returned 200).
+        log.exception("generation worker crashed for job %s", job_id)
+
+
 # ---------------------------------------------------------------------------
 # Health
 # ---------------------------------------------------------------------------
@@ -305,6 +323,117 @@ async def analyze(
         clip_id=clip_id,
     )
     return {"job_id": job_id, "status": "queued", "clip_id": clip_id}
+
+
+# ---------------------------------------------------------------------------
+# /generate
+# ---------------------------------------------------------------------------
+
+@app.post("/generate")
+async def generate(
+    background: BackgroundTasks,
+    user: CurrentUser = Depends(get_current_user),
+    template_id: str = Form(...),
+    topic: str = Form(...),
+    topic_id: str = Form(...),
+    class_id: Optional[str] = Form(None),
+    title: Optional[str] = Form(None),
+) -> dict:
+    """Kick off a generation job from a saved template + user-chosen topic.
+
+    Creates the ``clips`` row (status='generating') and the paired ``jobs``
+    row (kind='generate'), then schedules the worker in the background. The
+    frontend subscribes to ``job_events`` keyed on ``job_id`` to drive the
+    theatrical progress screen; the clip flips to ``ready`` and gains its
+    ``artifacts`` map on job done.
+    """
+    await _rate_limit_check(user.id)
+
+    if not template_id or not topic.strip() or not topic_id:
+        raise HTTPException(400, "template_id, topic, and topic_id are required")
+    if not os.environ.get("GEMINI_API_KEY"):
+        raise HTTPException(500, "GEMINI_API_KEY not set")
+    if not os.environ.get("ELEVENLABS_API_KEY"):
+        raise HTTPException(500, "ELEVENLABS_API_KEY not set")
+
+    sb = get_supabase()
+
+    # Validate the template belongs to (or is accessible by) this user. We
+    # match the existing ownership pattern — RLS permits read by user_id.
+    tpl = (
+        sb.table("templates")
+        .select("id, user_id, name, duration_s, thumbnail_color, style_dna, source_job_id")
+        .eq("id", template_id)
+        .maybe_single()
+        .execute()
+        .data
+    )
+    if not tpl:
+        raise HTTPException(404, "template not found")
+    if tpl.get("user_id") != user.id:
+        raise HTTPException(403, "template not owned by this user")
+    if not tpl.get("style_dna"):
+        raise HTTPException(
+            409,
+            "template missing style_dna — re-deconstruct the source clip first",
+        )
+    if not tpl.get("source_job_id"):
+        raise HTTPException(
+            409,
+            "template missing source_job_id — voice samples unreachable",
+        )
+
+    resolved_title = (title or "").strip() or tpl.get("name") or topic.strip()
+
+    # Create the clip row first so we have an id to wire into the jobs row.
+    clip_row = {
+        "user_id": user.id,
+        "topic_id": topic_id,
+        "template_id": template_id,
+        "title": resolved_title,
+        "duration_s": tpl.get("duration_s"),
+        "thumbnail_color": tpl.get("thumbnail_color"),
+        "status": "generating",
+        # style_dna + voice_ids get written by the worker as it progresses.
+    }
+    clip_resp = sb.table("clips").insert(clip_row).execute()
+    if not clip_resp.data:
+        raise HTTPException(502, "failed to create clip")
+    clip_id = clip_resp.data[0]["id"]
+
+    # Paired job row.
+    job_row = {
+        "user_id": user.id,
+        "kind": "generate",
+        "status": "queued",
+        # source_type is NOT NULL on the schema; 'template' is a sentinel for
+        # generation jobs so downstream filters can distinguish them.
+        "source_type": "template",
+        "clip_id": clip_id,
+        "clip_context": topic.strip(),
+    }
+    job_resp = sb.table("jobs").insert(job_row).execute()
+    if not job_resp.data:
+        # Roll back the clip we just wrote so we don't leave an orphan.
+        try:
+            sb.table("clips").delete().eq("id", clip_id).execute()
+        except Exception:  # noqa: BLE001
+            pass
+        raise HTTPException(502, "failed to create generation job")
+    job_id = job_resp.data[0]["id"]
+
+    # Link the job back to the clip.
+    sb.table("clips").update(
+        {"generation_job_id": job_id}
+    ).eq("id", clip_id).execute()
+
+    background.add_task(_run_generation, job_id=job_id)
+
+    return {
+        "job_id": job_id,
+        "clip_id": clip_id,
+        "status": "queued",
+    }
 
 
 # ---------------------------------------------------------------------------

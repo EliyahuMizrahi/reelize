@@ -26,6 +26,11 @@ import { ENTER, stagger } from '@/components/ui/motion';
 import { useAppTheme } from '@/contexts/ThemeContext';
 import { useClip, useFeed } from '@/data/hooks';
 import { DEFAULT_DNA, type DNAToken } from '@/components/brand/StyleDNA';
+import {
+  creatorSummaryFromStyle,
+  dnaTokensFromStyle,
+  transcriptFromStyle,
+} from '@/lib/format';
 import type { Row } from '@/types/supabase';
 
 // View-model for the web player — mirrors the native one.
@@ -68,6 +73,12 @@ function clipFromRow(row: Row<'clips'>): Clip {
     cuts.push(Math.max(0.04, Math.min(0.96, base + jitter)));
   }
   const creatorHandle = row.source_creator ?? '@source';
+  const { tokens } = dnaTokensFromStyle(row.style_dna);
+  const creator = creatorSummaryFromStyle(row.style_dna, creatorHandle);
+  const realTranscript = transcriptFromStyle(row.style_dna);
+  const transcript = realTranscript ?? [
+    { speaker: 0, t: '0:00', text: 'Transcript unavailable.' },
+  ];
   return {
     id: row.id,
     topic: row.title,
@@ -78,18 +89,9 @@ function clipFromRow(row: Row<'clips'>): Clip {
     thumbnailColor: row.thumbnail_color ?? palette.tealDeep,
     durationMs: Math.max(1, Math.round((row.duration_s ?? 30) * 1000)),
     cutPoints: cuts,
-    tokens: DEFAULT_DNA,
-    creator: {
-      handle: creatorHandle,
-      avgCutsPerMin: 22,
-      captionStyle: 'Full-sentence emphasis',
-      voiceEnergy: 'Warm, measured',
-      signatureTransition: 'Slow whip-pan',
-    },
-    transcript: [
-      { speaker: 0, t: '0:00', text: row.title },
-      { speaker: 0, t: '0:10', text: 'Transcript not yet extracted.' },
-    ],
+    tokens,
+    creator,
+    transcript,
   };
 }
 

@@ -31,11 +31,15 @@ import {
 } from '@/data/mutations';
 import { analyze, cancelJob } from '@/services/api';
 import { useJobStream } from '@/hooks/useJobStream';
+import { supabase } from '@/lib/supabase';
+import { formatDuration } from '@/lib/format';
 
 /* ========================================================
    Status timeline
    ======================================================== */
 
+// Deconstruction (URL-sourced) mock path retains these labels. The template
+// driven path derives its status text from the stream's latestMessage.
 const STATUSES = [
   'Reading your topic…',
   'Mapping pacing…',
@@ -48,8 +52,7 @@ const STATUSES = [
 
 const TOKEN_LABELS = ['PACING', 'HOOK', 'CAPTIONS', 'VOICE', 'MUSIC', 'VISUAL'];
 
-// Maps each orbit token to the backend event that "unlocks" it. When the
-// matching event arrives on the job stream, the token lights up as applied.
+// Old deconstruction-flow mapping. Left for the legacy `!fromTemplate` branch.
 const TOKEN_EVENT_TYPES: Record<string, string> = {
   PACING: 'audio.done',
   HOOK: 'video.done',
@@ -57,6 +60,31 @@ const TOKEN_EVENT_TYPES: Record<string, string> = {
   VOICE: 'artifacts.voices.done',
   MUSIC: 'artifacts.music.done',
   VISUAL: 'artifacts.hero.done',
+};
+
+// Generation-flow mapping. Each token lights up on a specific `gen.*` event.
+// PACING and HOOK both light off `gen.script.done` — the script stage is the
+// single event carrying both rhythm + opener tokens.
+const GEN_TOKEN_EVENT_TYPES: Record<string, string> = {
+  PACING: 'gen.script.done',
+  HOOK: 'gen.script.done',
+  VOICE: 'gen.voice.done',
+  CAPTIONS: 'gen.timeline.done',
+  MUSIC: 'gen.bg.done',
+  VISUAL: 'gen.render.done',
+};
+
+// Human-readable stage copy used when the backend's own `message` is empty.
+const GEN_STAGE_STATUS: Record<string, string> = {
+  'gen.script': 'Rewriting script…',
+  'gen.voice': 'Cloning voices…',
+  'gen.tts': 'Generating narration…',
+  'gen.bg': 'Picking backdrop…',
+  'gen.timeline': 'Composing timeline…',
+  'gen.render': 'Rendering video…',
+  'gen.verify': 'Checking quality…',
+  'gen.refine': 'Polishing…',
+  'gen.upload': 'Finishing up…',
 };
 
 /* ========================================================
@@ -184,10 +212,14 @@ function ResolvedCard({
   topic,
   onPlay,
   heroUrl,
+  durationS,
+  className,
 }: {
   topic: string;
   onPlay: () => void;
   heroUrl: string | null;
+  durationS: number | null;
+  className: string | null;
 }) {
   const { colors } = useAppTheme();
   const enter = useSharedValue(0);
@@ -198,6 +230,15 @@ function ResolvedCard({
     opacity: enter.value,
     transform: [{ scale: 0.88 + 0.12 * enter.value }, { translateY: 10 * (1 - enter.value) }],
   }));
+  const dur = durationS != null ? formatDuration(durationS) : null;
+  const courseLabel = (className && className.trim().length > 0
+    ? className
+    : 'LESSON'
+  ).toUpperCase();
+  const badgeLabel = dur ? `NEW · ${dur}` : 'NEW';
+  const footerLabel = dur
+    ? `READY · ${dur} · IN SOURCE STYLE`
+    : 'READY · IN SOURCE STYLE';
   return (
     <Animated.View style={[{ alignItems: 'center', gap: spacing.xl }, style]}>
       <View
@@ -226,7 +267,7 @@ function ResolvedCard({
           </Svg>
         )}
         <View style={{ position: 'absolute', left: 12, top: 12 }}>
-          <ShimmerBadge label="NEW · 0:30" compact />
+          <ShimmerBadge label={badgeLabel} compact />
         </View>
         <View
           style={{
@@ -238,7 +279,7 @@ function ResolvedCard({
           }}
         >
           <Overline style={{ letterSpacing: 1.8 }} color={palette.sage}>
-            BIOLOGY
+            {courseLabel}
           </Overline>
           <Text variant="bodyLg" family="serif" weight="bold" color={palette.mist}>
             {topic}
@@ -246,7 +287,7 @@ function ResolvedCard({
         </View>
       </View>
       <View style={{ alignItems: 'center', gap: 4 }}>
-        <Mono muted>READY · 0:30 · IN SOURCE STYLE</Mono>
+        <Mono muted>{footerLabel}</Mono>
       </View>
     </Animated.View>
   );
@@ -266,21 +307,31 @@ export default function GenerationScreen() {
     url?: string;
     topicId?: string;
     creator?: string;
+    clipId?: string;
+    jobId?: string;
+    fromTemplate?: string;
   }>();
   const { colors } = useAppTheme();
   const topic = (params.topic as string) || 'Your lesson';
   const sourceUrl = (params.url as string) || '';
   const sourceCreator = (params.creator as string) || '@source';
   const incomingTopicId = (params.topicId as string) || '';
+  const incomingClipId = (params.clipId as string) || '';
+  const incomingJobId = (params.jobId as string) || '';
+  const fromTemplate = params.fromTemplate === '1';
 
   const [statusIdx, setStatusIdx] = useState(0);
   const [appliedCount, setAppliedCount] = useState(0);
   const [resolved, setResolved] = useState(false);
-  const [jobId, setJobId] = useState<string | null>(null);
+  const [jobId, setJobId] = useState<string | null>(
+    fromTemplate && incomingJobId ? incomingJobId : null,
+  );
 
-  // If we have a sourceUrl we'll call analyze() and stream real progress.
-  // Without one (demo taps / local-only), we fall back to the mock timeline.
-  const willStreamRef = useRef(!!sourceUrl);
+  // Three flow shapes share this screen:
+  //   1. `fromTemplate` — backend owns clip+job rows, we just stream events.
+  //   2. `sourceUrl`    — URL-based deconstruction (legacy analyze flow).
+  //   3. neither        — demo path; mock timeline.
+  const willStreamRef = useRef(fromTemplate || !!sourceUrl);
 
   const stream = useJobStream(jobId);
   const {
@@ -295,9 +346,61 @@ export default function GenerationScreen() {
 
   // Track the in-flight job + resulting clip so Cancel can clean up
   // and Play can route to the created clip.
-  const jobIdRef = useRef<string | null>(null);
-  const clipIdRef = useRef<string | null>(null);
+  const jobIdRef = useRef<string | null>(
+    fromTemplate && incomingJobId ? incomingJobId : null,
+  );
+  const clipIdRef = useRef<string | null>(
+    fromTemplate && incomingClipId ? incomingClipId : null,
+  );
   const cancelledRef = useRef(false);
+
+  // Clip-side metadata for the ResolvedCard. Only fetched on the template
+  // path — the deconstruction flow doesn't land here with a clip row yet.
+  const [clipDurationS, setClipDurationS] = useState<number | null>(null);
+  const [className, setClassName] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!fromTemplate || !incomingClipId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('clips')
+          .select('duration_s, topic_id, topics ( class_id, classes ( name ) )')
+          .eq('id', incomingClipId)
+          .maybeSingle();
+        if (cancelled || error || !data) return;
+        if (typeof data.duration_s === 'number') {
+          setClipDurationS(data.duration_s);
+        }
+        // `topics.classes.name` — follows the FK trail; Supabase returns
+        // nested rows when the relationship is selected.
+        const topics = (data as { topics?: unknown }).topics as
+          | { classes?: { name?: string } | null }
+          | { classes?: { name?: string } | null }[]
+          | null
+          | undefined;
+        const topicRow = Array.isArray(topics) ? topics[0] : topics;
+        const cls = topicRow?.classes;
+        const clsRow = Array.isArray(cls) ? cls[0] : cls;
+        if (clsRow?.name) setClassName(clsRow.name);
+      } catch {
+        /* non-fatal — ResolvedCard has safe fallbacks */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [fromTemplate, incomingClipId]);
+
+  // Prefer duration reported by the job.done event if present — it's the
+  // render's authoritative output length.
+  useEffect(() => {
+    const done = byType['job.done'];
+    if (!done) return;
+    const d = (done.data as { duration_s?: unknown } | null)?.duration_s;
+    if (typeof d === 'number' && d > 0) setClipDurationS(d);
+  }, [byType]);
 
   // Shards primitive — starts exploded, tweens to assembled
   const [shardsPhase, setShardsPhase] = useState<'exploded' | 'assembled'>('exploded');
@@ -308,7 +411,8 @@ export default function GenerationScreen() {
     return () => clearTimeout(t);
   }, []);
 
-  // Status rotator — every 900ms (mock mode only).
+  // Status rotator — every 900ms (mock-only path). Template + stream paths
+  // derive status copy from the real event stream.
   useEffect(() => {
     if (willStreamRef.current) return;
     const id = setInterval(() => {
@@ -349,8 +453,9 @@ export default function GenerationScreen() {
   const lastHapticTokenRef = useRef<string | null>(null);
   useEffect(() => {
     if (!willStreamRef.current) return;
+    const tokenMap = fromTemplate ? GEN_TOKEN_EVENT_TYPES : TOKEN_EVENT_TYPES;
     for (const label of TOKEN_LABELS) {
-      const evType = TOKEN_EVENT_TYPES[label];
+      const evType = tokenMap[label];
       if (byType[evType] && lastHapticTokenRef.current !== label) {
         lastHapticTokenRef.current = label;
         if (Platform.OS !== 'web') {
@@ -358,7 +463,7 @@ export default function GenerationScreen() {
         }
       }
     }
-  }, [byType]);
+  }, [byType, fromTemplate]);
 
   // Progress bar shared value. In mock mode it ramps to 95% then 100%; in
   // stream mode it follows progress_pct from the latest event.
@@ -385,19 +490,11 @@ export default function GenerationScreen() {
     });
   }, [jobId, progressPct]);
 
-  // On mount: create the clip row (status='generating'), then POST to the
-  // backend /analyze endpoint which stamps user_id + clip_id on the jobs
-  // row and kicks the background Gemini/audio pipeline. The worker flips
-  // this clip's status to 'ready' when it finishes (minutes, not seconds).
-  // We don't wait for real completion — the visual timeline is theatre,
-  // and the player handles a 'generating' status gracefully.
-  //
-  // Kicked exactly once per mount via didKickoffRef — the effect runs with
-  // empty deps and the ref blocks any re-entry if router params rehydrate
-  // or the component re-mounts in a way that would otherwise spawn duplicate
-  // clips.
+  // Legacy deconstruction kickoff: only runs on the URL-sourced path. The
+  // template path lands here with a pre-made clip+job, so this effect skips.
   const didKickoffRef = useRef(false);
   useEffect(() => {
+    if (fromTemplate) return;
     if (didKickoffRef.current) return;
     didKickoffRef.current = true;
     let cancelled = false;
@@ -526,15 +623,22 @@ export default function GenerationScreen() {
       try {
         if (jid) {
           await cancelJob(jid);
-          await deleteJob(jid);
+          if (!fromTemplate) await deleteJob(jid);
         }
+        // On the template path the backend owns the clip row, but we still
+        // clean it up so a cancelled generation doesn't leave a zombie in
+        // the user's library.
         if (cid) await deleteClip(cid);
       } catch (err) {
         // eslint-disable-next-line no-console
         console.warn('[generation] cancel cleanup failed', err);
       }
     })();
-    router.replace('/create/topic' as any);
+    if (fromTemplate) {
+      router.replace('/(tabs)/library' as any);
+    } else {
+      router.replace('/create/topic' as any);
+    }
   };
 
   const onPlay = () => {
@@ -550,8 +654,8 @@ export default function GenerationScreen() {
     }
   };
 
-  // Auto-navigate after resolve. If we have SFX candidates, route to the
-  // review step first so the user can keep/drop them before playback.
+  // Auto-navigate after resolve. Template path routes straight to playback
+  // (SFX review is a deconstruction-only artifact).
   useEffect(() => {
     if (!resolved) return;
     const t = setTimeout(() => {
@@ -559,7 +663,7 @@ export default function GenerationScreen() {
       const cid = clipIdRef.current;
       const jid = jobIdRef.current;
       if (!cid) return;
-      if (jid && sfxItems.length > 0) {
+      if (!fromTemplate && jid && sfxItems.length > 0) {
         router.replace({
           pathname: '/create/sfx-review',
           params: { jobId: jid, clipId: cid, topic },
@@ -569,7 +673,38 @@ export default function GenerationScreen() {
       }
     }, 1400);
     return () => clearTimeout(t);
-  }, [resolved, router, sfxItems.length, topic]);
+  }, [resolved, router, sfxItems.length, topic, fromTemplate]);
+
+  // Derive status copy for the stream paths. Prefer the backend's literal
+  // message; fall back to the mapped stage name; fall back to "Starting…".
+  const genStatusLabel = useMemo(() => {
+    if (!willStreamRef.current) return STATUSES[statusIdx];
+    if (streamStatus === 'failed') return streamError ?? 'Job failed';
+    if (latestMessage && latestMessage.trim().length > 0) return latestMessage;
+    // Pull the most recent event's stage. Events ordered — byType keeps the
+    // latest per type; scan known stages and pick whichever appears latest.
+    const stageCandidates = Object.keys(GEN_STAGE_STATUS);
+    let best: { id: number; label: string } | null = null;
+    for (const stage of stageCandidates) {
+      // look for any event whose stage starts with this stage prefix
+      for (const ev of Object.values(byType)) {
+        if ((ev.stage ?? '').startsWith(stage)) {
+          if (!best || ev.id > best.id) {
+            best = { id: ev.id, label: GEN_STAGE_STATUS[stage] };
+          }
+        }
+      }
+    }
+    if (best) return best.label;
+    return jobId ? 'Connecting…' : 'Starting…';
+  }, [
+    byType,
+    jobId,
+    latestMessage,
+    statusIdx,
+    streamError,
+    streamStatus,
+  ]);
 
   return (
     <Screen background="ink">
@@ -639,22 +774,33 @@ export default function GenerationScreen() {
 
             {/* Orbit of applied tokens — in stream mode each lights up when
                 its mapped event arrives; in mock mode they stagger on a timer. */}
-            {TOKEN_LABELS.map((label, i) => (
-              <AppliedToken
-                key={label}
-                label={label}
-                pos={orbit[i]}
-                index={i}
-                applied={
-                  willStreamRef.current
-                    ? !!byType[TOKEN_EVENT_TYPES[label]]
-                    : i < appliedCount
-                }
-              />
-            ))}
+            {TOKEN_LABELS.map((label, i) => {
+              const tokenMap = fromTemplate
+                ? GEN_TOKEN_EVENT_TYPES
+                : TOKEN_EVENT_TYPES;
+              return (
+                <AppliedToken
+                  key={label}
+                  label={label}
+                  pos={orbit[i]}
+                  index={i}
+                  applied={
+                    willStreamRef.current
+                      ? !!byType[tokenMap[label]]
+                      : i < appliedCount
+                  }
+                />
+              );
+            })}
           </Animated.View>
         ) : (
-          <ResolvedCard topic={topic} onPlay={onPlay} heroUrl={heroUrl} />
+          <ResolvedCard
+            topic={topic}
+            onPlay={onPlay}
+            heroUrl={heroUrl}
+            durationS={clipDurationS}
+            className={className}
+          />
         )}
       </View>
 
@@ -683,15 +829,7 @@ export default function GenerationScreen() {
               >
                 {streamStatus === 'failed' ? 'FAILED' : 'COMPOSING'}
               </Overline>
-              <Mono color={palette.mist}>
-                {willStreamRef.current
-                  ? streamStatus === 'failed'
-                    ? (streamError ?? 'Job failed')
-                    : jobId
-                      ? (latestMessage || 'Connecting…')
-                      : 'Starting…'
-                  : STATUSES[statusIdx]}
-              </Mono>
+              <Mono color={palette.mist}>{genStatusLabel}</Mono>
             </View>
             <ProgressBar progress={progress} />
           </>

@@ -423,6 +423,42 @@ export function getJob(jobId: string, signal?: AbortSignal): Promise<JobDetail> 
   return request<JobDetail>(`/jobs/${jobId}`, { signal });
 }
 
+// ---------- generate (template-driven) ----------
+
+export interface GenerateInput {
+  templateId: string;
+  topicId: string;
+  classId?: string | null;
+  title: string;
+  topic: string;
+}
+
+export interface GenerateResponse {
+  job_id: string;
+  clip_id: string;
+  status: string;
+}
+
+/**
+ * Kick off a template-driven generation job on the backend.
+ *
+ * The backend owns clip-row creation + job-row creation here — the frontend
+ * only supplies the template, topic context, and title. The worker flips the
+ * returned clip to `ready` once render completes.
+ */
+export async function generate(input: GenerateInput): Promise<GenerateResponse> {
+  const form = new FormData();
+  form.append('template_id', input.templateId);
+  form.append('topic', input.topic);
+  form.append('topic_id', input.topicId);
+  if (input.classId != null) form.append('class_id', input.classId);
+  form.append('title', input.title);
+  return request<GenerateResponse>('/generate', {
+    method: 'POST',
+    body: form,
+  });
+}
+
 export function listJobs(
   limit = 20,
   signal?: AbortSignal,

@@ -24,10 +24,14 @@ services:
       - .env
     volumes:
       - ./tmp:/app/tmp
+      - ./assets/bg_footage:/app/assets/bg_footage:ro
       - hf-cache:/cache/huggingface
       - torch-cache:/cache/torch
       - whisper-cache:/cache/whisper
       - demucs-cache:/root/.cache/demucs
+      # Remotion's Chrome Headless Shell download survives rebuilds.
+      - remotion-cache:/cache/remotion
+      - puppeteer-cache:/cache/puppeteer
     # Give in-flight jobs a real chance to flush before SIGKILL. Whisper /
     # demucs / ffmpeg can be in the middle of writing a clip when we stop.
     stop_grace_period: 120s
@@ -55,3 +59,5 @@ volumes:
   torch-cache:
   whisper-cache:
   demucs-cache:
+  remotion-cache:
+  puppeteer-cache:
