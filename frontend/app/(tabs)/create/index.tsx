@@ -564,6 +564,9 @@ export default function CreateScreen() {
     router.push(('/create/deconstruction?url=' + encodeURIComponent(activeUrl)) as any);
   };
 
+  const isWeb = Platform.OS === 'web';
+  const webWrap = isWeb ? { maxWidth: 480, width: '100%' as const, alignSelf: 'center' as const } : null;
+
   return (
     <Screen background="primary">
       <ScrollView
@@ -572,27 +575,29 @@ export default function CreateScreen() {
         showsVerticalScrollIndicator={false}
       >
         <ScreenContent>
-          <View style={{ marginTop: spacing['3xl'], marginBottom: spacing.xl, alignItems: 'center' }}>
-            <Animated.View entering={ENTER.fadeUp(60)} style={{ maxWidth: 280 }}>
-              <Display2 align="center">Start with a reel you love.</Display2>
+          <View style={webWrap ?? undefined}>
+            <View style={{ marginTop: spacing['3xl'], marginBottom: spacing.xl, alignItems: 'center' }}>
+              <Animated.View entering={ENTER.fadeUp(60)} style={{ maxWidth: 280 }}>
+                <Display2 align="center">Start with a reel you love.</Display2>
+              </Animated.View>
+            </View>
+
+            <Animated.View entering={ENTER.fadeUp(260)}>
+              <TabSwitcher tab={tab} onChange={setTab} />
             </Animated.View>
+
+            {/* Tab content */}
+            {tab === 'url' && (
+              <Animated.View key="url" entering={FadeIn.duration(motion.dur.normal)}>
+                <PasteUrlTab onReady={setActiveUrl} />
+              </Animated.View>
+            )}
+            {tab === 'roll' && (
+              <Animated.View key="roll" entering={FadeIn.duration(motion.dur.normal)}>
+                <CameraRollTab picked={pickedVideo} onPicked={setPickedVideo} />
+              </Animated.View>
+            )}
           </View>
-
-          <Animated.View entering={ENTER.fadeUp(260)}>
-            <TabSwitcher tab={tab} onChange={setTab} />
-          </Animated.View>
-
-          {/* Tab content */}
-          {tab === 'url' && (
-            <Animated.View key="url" entering={FadeIn.duration(motion.dur.normal)}>
-              <PasteUrlTab onReady={setActiveUrl} />
-            </Animated.View>
-          )}
-          {tab === 'roll' && (
-            <Animated.View key="roll" entering={FadeIn.duration(motion.dur.normal)}>
-              <CameraRollTab picked={pickedVideo} onPicked={setPickedVideo} />
-            </Animated.View>
-          )}
         </ScreenContent>
       </ScrollView>
 
@@ -611,14 +616,16 @@ export default function CreateScreen() {
           borderTopColor: colors.border as string,
         }}
       >
-        <Button
-          title="Deconstruct →"
-          variant={ready ? 'shimmer' : 'tertiary'}
-          size="lg"
-          fullWidth
-          disabled={!ready}
-          onPress={onDeconstruct}
-        />
+        <View style={webWrap ?? undefined}>
+          <Button
+            title="Deconstruct →"
+            variant={ready ? 'shimmer' : 'tertiary'}
+            size="lg"
+            fullWidth
+            disabled={!ready}
+            onPress={onDeconstruct}
+          />
+        </View>
       </Animated.View>
 
       <TemplateSavedModal

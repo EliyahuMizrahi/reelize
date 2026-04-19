@@ -15,7 +15,6 @@ import Animated from 'react-native-reanimated';
 import { Surface, Divider } from '@/components/ui/Surface';
 import { Button } from '@/components/ui/Button';
 import { IconButton } from '@/components/ui/IconButton';
-import { Chip } from '@/components/ui/Chip';
 import { TextField } from '@/components/ui/TextField';
 import { Display2, Headline, Title, TitleSm, Body, BodySm, Mono, MonoSm, Overline, Text } from '@/components/ui/Text';
 import { useActiveCourse } from '@/components/navigation/WebAppChrome';
@@ -36,19 +35,13 @@ import type { ClassWithCounts, TopicWithClipCount } from '@/data/queries';
 import type { Row } from '@/types/supabase';
 import { formatRelative, summarizeTemplate } from '@/lib/format';
 
-type Sort = 'recent' | 'alpha' | 'most-clips';
-
 // ───────────────────────── Page header ─────────────────────────
 function PageHeader({
-  sort,
-  setSort,
   counts,
   courseCount,
   onNewCourse,
   onOpenTemplates,
 }: {
-  sort: Sort;
-  setSort: (s: Sort) => void;
   counts: { topic: number; clip: number };
   courseCount: number;
   onNewCourse: () => void;
@@ -115,14 +108,6 @@ function PageHeader({
           </Pressable>
         </View>
       </View>
-      {courseCount > 0 ? (
-        <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center', flexWrap: 'wrap' }}>
-          <Overline muted style={{ marginRight: spacing.sm }}>SORT</Overline>
-          <Chip label="Recent" variant="outline" selected={sort === 'recent'} onPress={() => setSort('recent')} size="sm" />
-          <Chip label="A–Z" variant="outline" selected={sort === 'alpha'} onPress={() => setSort('alpha')} size="sm" />
-          <Chip label="Most lessons" variant="outline" selected={sort === 'most-clips'} onPress={() => setSort('most-clips')} size="sm" />
-        </View>
-      ) : null}
     </View>
   );
 }
@@ -896,7 +881,6 @@ export default function LibraryWebScreen() {
   const router = useRouter();
   const { colors } = useAppTheme();
   useWindowDimensions();
-  const [sort, setSort] = useState<Sort>('recent');
   const [newCourseOpen, setNewCourseOpen] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const { activeCourseId, setActiveCourseId } = useActiveCourse();
@@ -947,29 +931,15 @@ export default function LibraryWebScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.new, params.tab, params.course, classList.length]);
 
-  const sorted = useMemo(() => {
-    const list = [...classList];
-    if (sort === 'recent') {
-      list.sort((a, b) => {
-        const at = a.last_active_at ? new Date(a.last_active_at).getTime() : 0;
-        const bt = b.last_active_at ? new Date(b.last_active_at).getTime() : 0;
-        return bt - at;
-      });
-    } else if (sort === 'alpha') {
-      list.sort((a, b) => a.name.localeCompare(b.name));
-    } else {
-      list.sort((a, b) => b.clip_count - a.clip_count);
-    }
-    return list;
-  }, [sort, classList]);
+  // fetchClasses already orders by last_active_at desc then created_at desc,
+  // so we just reuse the fetched order.
+  const sorted = classList;
 
   const activeClass = activeCourseId ? classList.find((c) => c.id === activeCourseId) : null;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background as string }}>
       <PageHeader
-        sort={sort}
-        setSort={setSort}
         courseCount={classList.length}
         counts={{ topic: stats?.topicCount ?? 0, clip: stats?.clipCount ?? 0 }}
         onNewCourse={() => setNewCourseOpen(true)}
